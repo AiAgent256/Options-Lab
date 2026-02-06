@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, ReferenceLine, Legend, ComposedChart, PieChart, Pie, Cell } from "recharts"
-import { fetchBinanceTickers, fetchMultiKlines } from "../hooks/useBinanceKlines"
+import { fetchTickers, fetchAllKlines, normalizeSymbol, isCryptoSymbol } from "../hooks/useMarketData"
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#a855f7", "#14b8a6", "#e11d48"]
@@ -15,16 +15,7 @@ const ASSET_TYPES = [
   { value: "other", label: "Other" },
 ]
 
-// Predefined crypto symbols for Binance mapping
-const CRYPTO_MAP = {
-  BTC: "BTCUSDT", ETH: "ETHUSDT", SOL: "SOLUSDT", DOGE: "DOGEUSDT", XRP: "XRPUSDT",
-  ADA: "ADAUSDT", AVAX: "AVAXUSDT", DOT: "DOTUSDT", LINK: "LINKUSDT", MATIC: "MATICUSDT",
-  NEAR: "NEARUSDT", ARB: "ARBUSDT", OP: "OPUSDT", SUI: "SUIUSDT", APT: "APTUSDT",
-  TIA: "TIAUSDT", SEI: "SEIUSDT", INJ: "INJUSDT", PEPE: "PEPEUSDT", WIF: "WIFUSDT",
-  HYPE: "HYPEUSDT", RENDER: "RENDERUSDT", FET: "FETUSDT", TAO: "TAOUSDT",
-  CC: "CCUSDT", "CC/USDT": "CCUSDT",
-}
-
+// TradingView symbol mappings for equities
 const EQUITY_TV_MAP = {
   MSTR: "NASDAQ:MSTR", COIN: "NASDAQ:COIN", MARA: "NASDAQ:MARA", RIOT: "NASDAQ:RIOT",
   CLSK: "NASDAQ:CLSK", HUT: "NASDAQ:HUT", BITF: "NASDAQ:BITF", SPY: "AMEX:SPY",
@@ -85,7 +76,9 @@ export default function Portfolio({ onNavigateToChart }) {
   const [historicalData, setHistoricalData] = useState({}) // { BTCUSDT: [{ date, close }] }
   const [historyLoading, setHistoryLoading] = useState(false)
   const [viewMode, setViewMode] = useState("cards") // "cards" | "table"
-  const [chartRange, setChartRange] = useState("6M")
+  const [chartRange, setChartRange] = useState("ALL")
+  const [customFrom, setCustomFrom] = useState("")
+  const [customTo, setCustomTo] = useState(new Date().toISOString().split("T")[0])
   const [showAddForm, setShowAddForm] = useState(false)
 
   // New holding form state
@@ -99,73 +92,74 @@ export default function Portfolio({ onNavigateToChart }) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings)) } catch {}
   }, [holdings])
 
-  // ─── FETCH LIVE PRICES ──────────────────────────────────────────────────
-  const cryptoSymbols = useMemo(() => {
-    const syms = new Set()
-    holdings.forEach(h => {
-      const sym = h.symbol.toUpperCase().replace("/", "")
-      const mapped = CRYPTO_MAP[sym] || CRYPTO_MAP[h.symbol.toUpperCase()]
-      if (mapped) syms.add(mapped)
-    })
-    return [...syms]
+  // ─── RESOLVE CRYPTO HOLDINGS ────────────────────────────────────────────
+  const cryptoHoldings = useMemo(() => {
+    return holdings.filter(h => isCryptoSymbol(h.symbol))
   }, [holdings])
 
-  // Earliest trade date per symbol (for fetching enough history)
+  // Earliest trade date per normalized key
   const earliestDates = useMemo(() => {
     const map = {}
-    holdings.forEach(h => {
-      const sym = h.symbol.toUpperCase().replace("/", "")
-      const mapped = CRYPTO_MAP[sym] || CRYPTO_MAP[h.symbol.toUpperCase()]
-      if (!mapped) return
+    cryptoHoldings.forEach(h => {
+      const key = normalizeSymbol(h.symbol)
       const t = new Date(h.tradeDate).getTime()
-      if (!map[mapped] || t < map[mapped]) map[mapped] = t
+      if (!map[key] || t < map[key]) map[key] = t
     })
     return map
-  }, [holdings])
+  }, [cryptoHoldings])
 
-  // Poll live prices every 5s
+  // ─── POLL LIVE PRICES (Coinbase spot / Phemex perps / Binance fallback) ──
   useEffect(() => {
-    if (cryptoSymbols.length === 0) return
+    if (cryptoHoldings.length === 0) return
     let active = true
     const poll = async () => {
-      const tickers = await fetchBinanceTickers(cryptoSymbols)
+      const tickers = await fetchTickers(cryptoHoldings)
       if (active) setLiveData(tickers)
     }
     poll()
-    const interval = setInterval(poll, 5000)
+    const interval = setInterval(poll, 8000)
     return () => { active = false; clearInterval(interval) }
-  }, [cryptoSymbols])
+  }, [cryptoHoldings])
 
   // ─── FETCH HISTORICAL KLINES ────────────────────────────────────────────
   useEffect(() => {
-    if (cryptoSymbols.length === 0) return
+    if (cryptoHoldings.length === 0) return
     let active = true
     setHistoryLoading(true)
 
-    const rangeDays = { "1M": 30, "3M": 90, "6M": 180, "1Y": 365, "ALL": 1000 }[chartRange] || 180
-    const rangeStart = Date.now() - rangeDays * 86400000
+    let rangeStart
+    if (chartRange === "CUSTOM" && customFrom) {
+      rangeStart = new Date(customFrom).getTime()
+    } else if (chartRange === "ALL") {
+      const allTradeDates = Object.values(earliestDates)
+      rangeStart = allTradeDates.length > 0 ? Math.min(...allTradeDates) : Date.now() - 365 * 86400000
+    } else {
+      const rangeDays = { "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365 }[chartRange] || 180
+      rangeStart = Date.now() - rangeDays * 86400000
+    }
 
-    // For each symbol, use the earlier of: chartRange start or earliest trade date
-    const requests = cryptoSymbols.map(sym => {
-      const tradeStart = earliestDates[sym] || rangeStart
-      const startTime = Math.min(tradeStart, rangeStart)
-      return { symbol: sym, startTime, interval: "1d" }
+    // Build requests per holding with trade dates
+    const seen = new Set()
+    const requests = []
+    cryptoHoldings.forEach(h => {
+      const key = normalizeSymbol(h.symbol)
+      if (seen.has(key)) return
+      seen.add(key)
+      const tradeStart = earliestDates[key] || rangeStart
+      requests.push({ symbol: h.symbol, type: h.type, startTime: Math.min(tradeStart, rangeStart) })
     })
 
-    fetchMultiKlines(requests).then(data => {
-      if (active) {
-        setHistoricalData(data)
-        setHistoryLoading(false)
-      }
+    fetchAllKlines(requests).then(data => {
+      if (active) { setHistoricalData(data); setHistoryLoading(false) }
     })
     return () => { active = false }
-  }, [cryptoSymbols, chartRange, earliestDates])
+  }, [cryptoHoldings, chartRange, customFrom])
 
   // ─── ENRICH HOLDINGS WITH LIVE DATA ─────────────────────────────────────
   const enrichedHoldings = useMemo(() => {
     return holdings.map((h, i) => {
-      const binanceSym = CRYPTO_MAP[h.symbol.toUpperCase()] || CRYPTO_MAP[h.symbol.toUpperCase().replace("/", "")]
-      const live = binanceSym ? liveData[binanceSym] : null
+      const cryptoKey = isCryptoSymbol(h.symbol) ? normalizeSymbol(h.symbol) : null
+      const live = cryptoKey ? liveData[cryptoKey] : null
       const currentPrice = live ? live.price : (h.currentPrice || h.costBasis)
       const change24h = live ? live.change : 0
 
@@ -205,10 +199,10 @@ export default function Portfolio({ onNavigateToChart }) {
       const daysHeld = Math.max(0, Math.round((Date.now() - tradeDate.getTime()) / 86400000))
 
       // TradingView symbol
-      const tvSymbol = binanceSym ? `BINANCE:${binanceSym}` : (EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol)
+      const tvSymbol = cryptoKey ? `BINANCE:${cryptoKey}USDT` : (EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol)
 
       return {
-        ...h, currentPrice, change24h, binanceSym, tvSymbol, daysHeld, direction,
+        ...h, currentPrice, change24h, cryptoKey, tvSymbol, daysHeld, direction,
         isLeveraged, margin, notional, entryNotional, equity, pnl, pnlPct, portfolioValue,
         color: COLORS[i % COLORS.length],
       }
@@ -244,7 +238,16 @@ export default function Portfolio({ onNavigateToChart }) {
     // Build a unified date axis from all kline data
     const allDates = new Set()
     Object.values(historicalData).forEach(klines => klines.forEach(k => allDates.add(k.date)))
-    const sortedDates = [...allDates].sort()
+    let sortedDates = [...allDates].sort()
+
+    // Filter dates by chart range for display
+    if (chartRange === "CUSTOM" && customFrom) {
+      sortedDates = sortedDates.filter(d => d >= customFrom && (!customTo || d <= customTo))
+    } else if (chartRange !== "ALL") {
+      const rangeDays = { "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365 }[chartRange] || 180
+      const cutoff = new Date(Date.now() - rangeDays * 86400000).toISOString().split("T")[0]
+      sortedDates = sortedDates.filter(d => d >= cutoff)
+    }
 
     // For each date, compute portfolio equity (real money value)
     return sortedDates.map(date => {
@@ -255,7 +258,7 @@ export default function Portfolio({ onNavigateToChart }) {
         // Only include if trade date is before or on this date
         if (new Date(date) < new Date(h.tradeDate)) return
 
-        const klines = historicalData[h.binanceSym]
+        const klines = historicalData[h.cryptoKey]
         if (!klines) {
           // Non-crypto: use margin as constant (no historical data available)
           totalEquity += h.margin
@@ -284,7 +287,7 @@ export default function Portfolio({ onNavigateToChart }) {
 
   // ─── INDIVIDUAL HOLDING CHART DATA ──────────────────────────────────────
   const holdingChartData = useCallback((holding) => {
-    const klines = historicalData[holding.binanceSym]
+    const klines = historicalData[holding.cryptoKey]
     if (!klines || klines.length === 0) return []
     return klines
       .filter(k => new Date(k.date) >= new Date(holding.tradeDate))
@@ -530,15 +533,26 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* ─── PORTFOLIO VALUE CHART + ALLOCATION ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, marginBottom: 20 }}>
         <div className="pf-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Equity Over Time</div>
-            <div style={{ display: "flex", gap: 2 }}>
-              {["1M", "3M", "6M", "1Y", "ALL"].map(r => (
+            <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
+              {["1W", "1M", "3M", "6M", "1Y", "ALL", "CUSTOM"].map(r => (
                 <button key={r} className={`pf-btn ${chartRange === r ? "pf-btn-primary" : ""}`}
                   style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => setChartRange(r)}>
                   {r}
                 </button>
               ))}
+              {chartRange === "CUSTOM" && (
+                <div style={{ display: "flex", gap: 4, alignItems: "center", marginLeft: 6 }}>
+                  <input className="pf-input" type="date" value={customFrom}
+                    onChange={e => setCustomFrom(e.target.value)}
+                    style={{ width: 120, padding: "3px 6px", fontSize: 9 }} />
+                  <span style={{ color: "#3a4050", fontSize: 9 }}>→</span>
+                  <input className="pf-input" type="date" value={customTo}
+                    onChange={e => setCustomTo(e.target.value)}
+                    style={{ width: 120, padding: "3px 6px", fontSize: 9 }} />
+                </div>
+              )}
             </div>
           </div>
           {portfolioChart.length > 2 ? (
