@@ -201,7 +201,7 @@ export default function App() {
                   onMouseDown={(e) => {
                     e.preventDefault()
                     const startX = e.clientX
-                    const startW = panelWidth
+                    const startW = panelWidth 
                     const onMove = (ev) => {
                       const delta = ev.clientX - startX
                       const newW = startW + (delta / window.innerWidth) * 100
