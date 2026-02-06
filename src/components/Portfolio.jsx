@@ -1,0 +1,747 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, ReferenceLine, Legend, ComposedChart, PieChart, Pie, Cell } from "recharts"
+import { fetchBinanceTickers, fetchMultiKlines } from "../hooks/useBinanceKlines"
+
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#a855f7", "#14b8a6", "#e11d48"]
+const STORAGE_KEY = "optlab:portfolio"
+
+const ASSET_TYPES = [
+  { value: "crypto_spot", label: "Crypto (Spot)" },
+  { value: "crypto_perp", label: "Crypto (Perp/Futures)" },
+  { value: "equity", label: "Equity" },
+  { value: "option_long", label: "Option (Long)" },
+  { value: "option_short", label: "Option (Short)" },
+  { value: "other", label: "Other" },
+]
+
+// Predefined crypto symbols for Binance mapping
+const CRYPTO_MAP = {
+  BTC: "BTCUSDT", ETH: "ETHUSDT", SOL: "SOLUSDT", DOGE: "DOGEUSDT", XRP: "XRPUSDT",
+  ADA: "ADAUSDT", AVAX: "AVAXUSDT", DOT: "DOTUSDT", LINK: "LINKUSDT", MATIC: "MATICUSDT",
+  NEAR: "NEARUSDT", ARB: "ARBUSDT", OP: "OPUSDT", SUI: "SUIUSDT", APT: "APTUSDT",
+  TIA: "TIAUSDT", SEI: "SEIUSDT", INJ: "INJUSDT", PEPE: "PEPEUSDT", WIF: "WIFUSDT",
+  HYPE: "HYPEUSDT", RENDER: "RENDERUSDT", FET: "FETUSDT", TAO: "TAOUSDT",
+}
+
+const EQUITY_TV_MAP = {
+  MSTR: "NASDAQ:MSTR", COIN: "NASDAQ:COIN", MARA: "NASDAQ:MARA", RIOT: "NASDAQ:RIOT",
+  CLSK: "NASDAQ:CLSK", HUT: "NASDAQ:HUT", BITF: "NASDAQ:BITF", SPY: "AMEX:SPY",
+  QQQ: "NASDAQ:QQQ", AAPL: "NASDAQ:AAPL", TSLA: "NASDAQ:TSLA", NVDA: "NASDAQ:NVDA",
+  AAOI: "NASDAQ:AAOI", COHR: "NASDAQ:COHR",
+}
+
+const DEFAULT_HOLDINGS = [
+  { id: 1, symbol: "BTC", name: "Bitcoin", type: "crypto_spot", quantity: 0.5, costBasis: 42000, leverage: 1, tradeDate: "2024-01-15", notes: "Spot accumulation", currentPrice: 0 },
+  { id: 2, symbol: "ETH", name: "Ethereum", type: "crypto_spot", quantity: 5, costBasis: 2200, leverage: 1, tradeDate: "2024-02-01", notes: "", currentPrice: 0 },
+  { id: 3, symbol: "MSTR", name: "MicroStrategy", type: "equity", quantity: 50, costBasis: 180, leverage: 1, tradeDate: "2024-03-01", notes: "BTC proxy", currentPrice: 0 },
+]
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const fmtDollar = (v) => {
+  if (v == null || !isFinite(v)) return "—"
+  if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(2)}B`
+  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(2)}M`
+  if (Math.abs(v) >= 1e4) return `$${(v / 1e3).toFixed(1)}K`
+  return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+const fmtPct = (v) => v == null || !isFinite(v) ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`
+const fmtPnl = (v) => v == null || !isFinite(v) ? "—" : `${v >= 0 ? "+" : ""}${fmtDollar(v).replace("$", "$")}`
+
+// ─── TRADINGVIEW MINI CHART WIDGET ───────────────────────────────────────────
+const TvMiniChart = memo(({ symbol, width = "100%", height = 160 }) => {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!ref.current) return
+    ref.current.innerHTML = ""
+    const container = document.createElement("div")
+    container.className = "tradingview-widget-container__widget"
+    container.style.height = "100%"
+    ref.current.appendChild(container)
+    const script = document.createElement("script")
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js"
+    script.async = true
+    script.innerHTML = JSON.stringify({
+      symbol, width: "100%", height, locale: "en", dateRange: "12M",
+      colorTheme: "dark", isTransparent: true, autosize: false,
+      largeChartUrl: "", noTimeScale: false, chartOnly: false,
+      trendLineColor: "rgba(59, 130, 246, 0.6)", underLineColor: "rgba(59, 130, 246, 0.1)",
+      underLineBottomColor: "rgba(59, 130, 246, 0)", backgroundColor: "rgba(0,0,0,0)",
+    })
+    ref.current.appendChild(script)
+    return () => { if (ref.current) ref.current.innerHTML = "" }
+  }, [symbol, height])
+  return <div ref={ref} style={{ width, height, overflow: "hidden" }} />
+})
+
+// ─── PORTFOLIO COMPONENT ─────────────────────────────────────────────────────
+export default function Portfolio({ onNavigateToChart }) {
+  const [holdings, setHoldings] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      return saved ? JSON.parse(saved) : DEFAULT_HOLDINGS
+    } catch { return DEFAULT_HOLDINGS }
+  })
+  const [nextId, setNextId] = useState(() => Math.max(0, ...holdings.map(h => h.id)) + 1)
+  const [editingId, setEditingId] = useState(null)
+  const [liveData, setLiveData] = useState({}) // { BTCUSDT: { price, change, ... } }
+  const [historicalData, setHistoricalData] = useState({}) // { BTCUSDT: [{ date, close }] }
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [viewMode, setViewMode] = useState("cards") // "cards" | "table"
+  const [chartRange, setChartRange] = useState("6M")
+  const [showAddForm, setShowAddForm] = useState(false)
+
+  // New holding form state
+  const [newHolding, setNewHolding] = useState({
+    symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0,
+    leverage: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "",
+  })
+
+  // Persist holdings
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings)) } catch {}
+  }, [holdings])
+
+  // ─── FETCH LIVE PRICES ──────────────────────────────────────────────────
+  const cryptoSymbols = useMemo(() => {
+    const syms = new Set()
+    holdings.forEach(h => {
+      const mapped = CRYPTO_MAP[h.symbol.toUpperCase()]
+      if (mapped) syms.add(mapped)
+    })
+    return [...syms]
+  }, [holdings])
+
+  // Poll live prices every 5s
+  useEffect(() => {
+    if (cryptoSymbols.length === 0) return
+    let active = true
+    const poll = async () => {
+      const tickers = await fetchBinanceTickers(cryptoSymbols)
+      if (active) setLiveData(tickers)
+    }
+    poll()
+    const interval = setInterval(poll, 5000)
+    return () => { active = false; clearInterval(interval) }
+  }, [cryptoSymbols])
+
+  // ─── FETCH HISTORICAL KLINES ────────────────────────────────────────────
+  useEffect(() => {
+    if (cryptoSymbols.length === 0) return
+    let active = true
+    setHistoryLoading(true)
+
+    const rangeDays = { "1M": 30, "3M": 90, "6M": 180, "1Y": 365, "ALL": 1000 }[chartRange] || 180
+    const startTime = Date.now() - rangeDays * 86400000
+
+    const requests = cryptoSymbols.map(sym => ({ symbol: sym, startTime, interval: "1d" }))
+    fetchMultiKlines(requests).then(data => {
+      if (active) {
+        setHistoricalData(data)
+        setHistoryLoading(false)
+      }
+    })
+    return () => { active = false }
+  }, [cryptoSymbols, chartRange])
+
+  // ─── ENRICH HOLDINGS WITH LIVE DATA ─────────────────────────────────────
+  const enrichedHoldings = useMemo(() => {
+    return holdings.map((h, i) => {
+      const binanceSym = CRYPTO_MAP[h.symbol.toUpperCase()]
+      const live = binanceSym ? liveData[binanceSym] : null
+      const currentPrice = live ? live.price : (h.currentPrice || h.costBasis)
+      const change24h = live ? live.change : 0
+
+      // Position math
+      const effectiveCost = h.costBasis * h.quantity
+      const currentValue = currentPrice * h.quantity * (h.leverage || 1)
+      const costWithLeverage = effectiveCost // cost basis is what you actually paid
+      const pnl = currentValue - costWithLeverage
+      const pnlPct = costWithLeverage > 0 ? pnl / costWithLeverage : 0
+
+      // Leveraged P&L: if leverage > 1, P&L is amplified from price move
+      const priceMove = h.costBasis > 0 ? (currentPrice - h.costBasis) / h.costBasis : 0
+      const leveragedReturn = priceMove * (h.leverage || 1)
+
+      // Days held
+      const tradeDate = new Date(h.tradeDate)
+      const daysHeld = Math.max(0, Math.round((Date.now() - tradeDate.getTime()) / 86400000))
+
+      // TradingView symbol
+      const tvSymbol = binanceSym ? `BINANCE:${binanceSym}` : (EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol)
+
+      return {
+        ...h, currentPrice, change24h, effectiveCost, currentValue, costWithLeverage,
+        pnl, pnlPct, leveragedReturn, daysHeld, tvSymbol, binanceSym,
+        color: COLORS[i % COLORS.length],
+      }
+    })
+  }, [holdings, liveData])
+
+  // ─── PORTFOLIO AGGREGATES ───────────────────────────────────────────────
+  const portfolio = useMemo(() => {
+    const totalCost = enrichedHoldings.reduce((s, h) => s + h.costWithLeverage, 0)
+    const totalValue = enrichedHoldings.reduce((s, h) => s + h.currentValue, 0)
+    const totalPnl = totalValue - totalCost
+    const totalPnlPct = totalCost > 0 ? totalPnl / totalCost : 0
+
+    // Allocation data for pie chart
+    const allocation = enrichedHoldings.map(h => ({
+      name: h.symbol, value: Math.max(0, h.currentValue), color: h.color, pct: totalValue > 0 ? h.currentValue / totalValue : 0,
+    }))
+
+    // Best / worst performers
+    const sorted = [...enrichedHoldings].sort((a, b) => b.pnlPct - a.pnlPct)
+    const best = sorted[0]
+    const worst = sorted[sorted.length - 1]
+
+    return { totalCost, totalValue, totalPnl, totalPnlPct, allocation, best, worst }
+  }, [enrichedHoldings])
+
+  // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
+  const portfolioChart = useMemo(() => {
+    if (Object.keys(historicalData).length === 0) return []
+
+    // Build a unified date axis from all kline data
+    const allDates = new Set()
+    Object.values(historicalData).forEach(klines => klines.forEach(k => allDates.add(k.date)))
+    const sortedDates = [...allDates].sort()
+
+    // For each date, compute portfolio value
+    return sortedDates.map(date => {
+      let totalValue = 0
+      let totalCost = 0
+
+      enrichedHoldings.forEach(h => {
+        const klines = historicalData[h.binanceSym]
+        if (!klines) {
+          // Non-crypto: use cost basis as constant (no historical data)
+          if (new Date(date) >= new Date(h.tradeDate)) {
+            totalValue += h.costBasis * h.quantity * (h.leverage || 1)
+            totalCost += h.costWithLeverage
+          }
+          return
+        }
+
+        // Only include if trade date is before or on this date
+        if (new Date(date) < new Date(h.tradeDate)) return
+
+        // Find closest kline for this date
+        const kline = klines.find(k => k.date === date) || klines.filter(k => k.date <= date).pop()
+        if (kline) {
+          totalValue += kline.close * h.quantity * (h.leverage || 1)
+          totalCost += h.costWithLeverage
+        }
+      })
+
+      return { date, totalValue, totalCost, pnl: totalValue - totalCost }
+    })
+  }, [historicalData, enrichedHoldings])
+
+  // ─── INDIVIDUAL HOLDING CHART DATA ──────────────────────────────────────
+  const holdingChartData = useCallback((holding) => {
+    const klines = historicalData[holding.binanceSym]
+    if (!klines || klines.length === 0) return []
+    return klines
+      .filter(k => new Date(k.date) >= new Date(holding.tradeDate))
+      .map(k => ({
+        date: k.date,
+        price: k.close,
+        value: k.close * holding.quantity * (holding.leverage || 1),
+        pnl: (k.close - holding.costBasis) * holding.quantity * (holding.leverage || 1),
+        pnlPct: holding.costBasis > 0 ? (k.close - holding.costBasis) / holding.costBasis * (holding.leverage || 1) : 0,
+      }))
+  }, [historicalData])
+
+  // ─── CRUD ───────────────────────────────────────────────────────────────
+  const addHolding = () => {
+    if (!newHolding.symbol.trim()) return
+    setHoldings(prev => [...prev, { ...newHolding, id: nextId, currentPrice: 0, symbol: newHolding.symbol.toUpperCase() }])
+    setNextId(p => p + 1)
+    setNewHolding({ symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0, leverage: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "" })
+    setShowAddForm(false)
+  }
+
+  const removeHolding = (id) => setHoldings(prev => prev.filter(h => h.id !== id))
+
+  const updateHolding = (id, field, value) => {
+    setHoldings(prev => prev.map(h => h.id === id ? { ...h, [field]: value } : h))
+  }
+
+  // ─── RENDER ─────────────────────────────────────────────────────────────
+  return (
+    <div style={{ padding: "20px 28px", maxWidth: 1440, margin: "0 auto", fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+        .pf-card { background: #0f1118; border: 1px solid #1a1d28; border-radius: 10px; padding: 20px; }
+        .pf-metric { background: #12151c; border: 1px solid #1a1d28; border-radius: 8px; padding: 12px 16px; }
+        .pf-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #4a5060; margin-bottom: 4px; font-weight: 500; }
+        .pf-value { font-size: 18px; font-weight: 600; color: #e0e4ec; }
+        .pf-btn { padding: 6px 14px; font-size: 11px; font-family: 'JetBrains Mono', monospace; cursor: pointer; border-radius: 6px; border: 1px solid #1e2330; background: #12151c; color: #8890a0; transition: all 0.15s; }
+        .pf-btn:hover { border-color: #3b82f6; color: #c8ccd4; }
+        .pf-btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+        .pf-btn-primary:hover { background: #2563eb; }
+        .pf-btn-danger { border-color: #ef444440; color: #ef4444; }
+        .pf-btn-danger:hover { background: #ef444415; }
+        .pf-input { background: #12151c; border: 1px solid #1e2330; color: #e0e4ec; padding: 8px 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px; width: 100%; outline: none; }
+        .pf-input:focus { border-color: #3b82f6; }
+        .pf-input::placeholder { color: #3a4050; }
+        .pf-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .pf-table th { text-align: right; padding: 8px 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #4a5060; border-bottom: 1px solid #1a1d28; font-weight: 500; }
+        .pf-table th:first-child { text-align: left; }
+        .pf-table td { text-align: right; padding: 6px 12px; border-bottom: 1px solid #111320; }
+        .pf-table td:first-child { text-align: left; }
+        .pf-table tr:hover td { background: #12151c; }
+      `}</style>
+
+      {/* ─── PORTFOLIO HEADER ─── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "2px", color: "#4a5060", marginBottom: 4 }}>Portfolio Value</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: "#e0e4ec", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-1px" }}>
+            {fmtDollar(portfolio.totalValue)}
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 12 }}>
+            <span style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+              {fmtPnl(portfolio.totalPnl)}
+            </span>
+            <span style={{ color: portfolio.totalPnl >= 0 ? "#22c55e80" : "#ef444480" }}>
+              {fmtPct(portfolio.totalPnlPct)}
+            </span>
+            <span style={{ color: "#3a4050" }}>·</span>
+            <span style={{ color: "#4a5060" }}>Cost: {fmtDollar(portfolio.totalCost)}</span>
+            <span style={{ color: "#4a5060" }}>{enrichedHoldings.length} positions</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 2 }}>
+            {["cards", "table"].map(m => (
+              <button key={m} className={`pf-btn ${viewMode === m ? "pf-btn-primary" : ""}`} onClick={() => setViewMode(m)}>
+                {m === "cards" ? "Cards" : "Table"}
+              </button>
+            ))}
+          </div>
+          <button className="pf-btn" onClick={() => {
+            const data = JSON.stringify(holdings, null, 2)
+            const blob = new Blob([data], { type: "application/json" })
+            const a = document.createElement("a")
+            a.href = URL.createObjectURL(blob)
+            a.download = `portfolio-${new Date().toISOString().split("T")[0]}.json`
+            a.click()
+          }}>↓ Export</button>
+          <button className="pf-btn" onClick={() => {
+            const input = document.createElement("input")
+            input.type = "file"
+            input.accept = ".json"
+            input.onchange = (e) => {
+              const file = e.target.files[0]
+              if (!file) return
+              const reader = new FileReader()
+              reader.onload = (ev) => {
+                try {
+                  const imported = JSON.parse(ev.target.result)
+                  if (Array.isArray(imported)) {
+                    const maxId = Math.max(0, ...holdings.map(h => h.id), ...imported.map(h => h.id || 0))
+                    const withIds = imported.map((h, i) => ({ ...h, id: h.id || maxId + i + 1, currentPrice: h.currentPrice || 0 }))
+                    setHoldings(prev => [...prev, ...withIds])
+                    setNextId(Math.max(0, ...holdings.map(h => h.id), ...withIds.map(h => h.id)) + 1)
+                  }
+                } catch { alert("Invalid portfolio JSON file") }
+              }
+              reader.readAsText(file)
+            }
+            input.click()
+          }}>↑ Import</button>
+          <button className="pf-btn pf-btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? "Cancel" : "+ Add Position"}
+          </button>
+        </div>
+      </div>
+
+      {/* ─── ADD FORM ─── */}
+      {showAddForm && (
+        <div className="pf-card" style={{ marginBottom: 16, borderTop: "2px solid #3b82f6" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+            <div>
+              <div className="pf-label">Symbol</div>
+              <input className="pf-input" type="text" placeholder="BTC, MSTR, etc." value={newHolding.symbol}
+                onChange={e => setNewHolding(p => ({ ...p, symbol: e.target.value }))} />
+            </div>
+            <div>
+              <div className="pf-label">Name</div>
+              <input className="pf-input" type="text" placeholder="Optional label" value={newHolding.name}
+                onChange={e => setNewHolding(p => ({ ...p, name: e.target.value }))} />
+            </div>
+            <div>
+              <div className="pf-label">Type</div>
+              <select className="pf-input" value={newHolding.type} onChange={e => setNewHolding(p => ({ ...p, type: e.target.value }))}>
+                {ASSET_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="pf-label">Quantity</div>
+              <input className="pf-input" type="number" step="any" value={newHolding.quantity || ""}
+                onChange={e => setNewHolding(p => ({ ...p, quantity: parseFloat(e.target.value) || 0 }))} />
+            </div>
+            <div>
+              <div className="pf-label">Cost Basis (per unit)</div>
+              <input className="pf-input" type="number" step="any" value={newHolding.costBasis || ""}
+                onChange={e => setNewHolding(p => ({ ...p, costBasis: parseFloat(e.target.value) || 0 }))} />
+            </div>
+            <div>
+              <div className="pf-label">Leverage</div>
+              <input className="pf-input" type="number" step="0.5" min="1" value={newHolding.leverage}
+                onChange={e => setNewHolding(p => ({ ...p, leverage: parseFloat(e.target.value) || 1 }))} />
+            </div>
+            <div>
+              <div className="pf-label">Trade Date</div>
+              <input className="pf-input" type="date" value={newHolding.tradeDate}
+                onChange={e => setNewHolding(p => ({ ...p, tradeDate: e.target.value }))} />
+            </div>
+            <div>
+              <div className="pf-label">Notes</div>
+              <input className="pf-input" type="text" placeholder="Optional" value={newHolding.notes}
+                onChange={e => setNewHolding(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+            <button className="pf-btn pf-btn-primary" onClick={addHolding}>Add to Portfolio</button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SUMMARY METRICS ─── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 20 }}>
+        <div className="pf-metric">
+          <div className="pf-label">Total Cost</div>
+          <div className="pf-value">{fmtDollar(portfolio.totalCost)}</div>
+        </div>
+        <div className="pf-metric">
+          <div className="pf-label">Total Value</div>
+          <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalValue)}</div>
+        </div>
+        <div className="pf-metric">
+          <div className="pf-label">Unrealized P&L</div>
+          <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.totalPnl)}</div>
+        </div>
+        <div className="pf-metric">
+          <div className="pf-label">Return</div>
+          <div className="pf-value" style={{ color: portfolio.totalPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalPnlPct)}</div>
+        </div>
+        {portfolio.best && (
+          <div className="pf-metric" style={{ borderLeft: "3px solid #22c55e" }}>
+            <div className="pf-label">Best Performer</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#22c55e" }}>{portfolio.best.symbol}</div>
+            <div style={{ fontSize: 11, color: "#22c55e80" }}>{fmtPct(portfolio.best.pnlPct)}</div>
+          </div>
+        )}
+        {portfolio.worst && (
+          <div className="pf-metric" style={{ borderLeft: "3px solid #ef4444" }}>
+            <div className="pf-label">Worst Performer</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#ef4444" }}>{portfolio.worst.symbol}</div>
+            <div style={{ fontSize: 11, color: "#ef444480" }}>{fmtPct(portfolio.worst.pnlPct)}</div>
+          </div>
+        )}
+      </div>
+
+      {/* ─── PORTFOLIO VALUE CHART + ALLOCATION ─── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, marginBottom: 20 }}>
+        <div className="pf-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Value Over Time</div>
+            <div style={{ display: "flex", gap: 2 }}>
+              {["1M", "3M", "6M", "1Y", "ALL"].map(r => (
+                <button key={r} className={`pf-btn ${chartRange === r ? "pf-btn-primary" : ""}`}
+                  style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => setChartRange(r)}>
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+          {portfolioChart.length > 2 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={portfolioChart} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="pf-val-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="pf-pnl-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22c55e" stopOpacity={0.1} />
+                    <stop offset="50%" stopColor="#22c55e" stopOpacity={0} />
+                    <stop offset="51%" stopColor="#ef4444" stopOpacity={0} />
+                    <stop offset="100%" stopColor="#ef4444" stopOpacity={0.1} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1a1d28" />
+                <XAxis dataKey="date" tick={{ fontSize: 8, fill: "#4a5060" }} tickFormatter={d => d.slice(5)} interval="preserveStartEnd" />
+                <YAxis yAxisId="val" tick={{ fontSize: 8, fill: "#4a5060" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                <YAxis yAxisId="pnl" orientation="right" tick={{ fontSize: 8, fill: "#4a506060" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 10, fontFamily: "JetBrains Mono" }}
+                  formatter={(v, name) => [fmtDollar(v), name === "totalValue" ? "Value" : name === "pnl" ? "P&L" : "Cost"]}
+                />
+                <ReferenceLine yAxisId="pnl" y={0} stroke="#4a506040" />
+                <Area yAxisId="val" type="monotone" dataKey="totalValue" stroke="#3b82f6" fill="url(#pf-val-grad)" strokeWidth={2} dot={false} />
+                <Line yAxisId="val" type="monotone" dataKey="totalCost" stroke="#4a506060" strokeWidth={1} dot={false} strokeDasharray="4 4" />
+                <Area yAxisId="pnl" type="monotone" dataKey="pnl" stroke="none" fill="url(#pf-pnl-grad)" dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: "#3a4050", fontSize: 11 }}>
+              {historyLoading ? "Loading historical data..." : "Add crypto holdings to see portfolio chart"}
+            </div>
+          )}
+        </div>
+
+        {/* Allocation Pie */}
+        <div className="pf-card">
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070", marginBottom: 8 }}>Allocation</div>
+          {portfolio.allocation.length > 0 && (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={portfolio.allocation} dataKey="value" nameKey="name" cx="50%" cy="50%"
+                    innerRadius={40} outerRadius={65} stroke="#0f1118" strokeWidth={2}>
+                    {portfolio.allocation.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 10, fontFamily: "JetBrains Mono" }}
+                    formatter={(v) => [fmtDollar(v), "Value"]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                {portfolio.allocation.map((a, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: a.color }} />
+                      <span style={{ color: "#8890a0" }}>{a.name}</span>
+                    </div>
+                    <span style={{ color: "#5a6070" }}>{(a.pct * 100).toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ─── HOLDINGS: CARD VIEW ─── */}
+      {viewMode === "cards" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, marginBottom: 20 }}>
+          {enrichedHoldings.map(h => {
+            const chartData = holdingChartData(h)
+            const isEditing = editingId === h.id
+            return (
+              <div key={h.id} className="pf-card" style={{ borderLeft: `3px solid ${h.color}`, padding: 16 }}>
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: "#e0e4ec" }}>{h.symbol}</span>
+                      {h.name && <span style={{ fontSize: 11, color: "#4a5060" }}>{h.name}</span>}
+                      <span style={{ fontSize: 8, padding: "1px 6px", borderRadius: 3, background: h.type.includes("crypto") ? "#f59e0b15" : "#3b82f615", color: h.type.includes("crypto") ? "#f59e0b" : "#3b82f6" }}>
+                        {ASSET_TYPES.find(t => t.value === h.type)?.label || h.type}
+                      </span>
+                      {h.leverage > 1 && (
+                        <span style={{ fontSize: 8, padding: "1px 6px", borderRadius: 3, background: "#ef444415", color: "#ef4444", fontWeight: 600 }}>
+                          {h.leverage}×
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#3a4050", marginTop: 2 }}>
+                      Opened {h.tradeDate} · {h.daysHeld}d held
+                      {h.notes && <span> · {h.notes}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {onNavigateToChart && (
+                      <button className="pf-btn" style={{ padding: "3px 8px", fontSize: 9, color: "#3b82f6", borderColor: "#3b82f640" }} onClick={() => onNavigateToChart(h.tvSymbol)} title="Open chart in Simulator">
+                        📈
+                      </button>
+                    )}
+                    <button className="pf-btn" style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => setEditingId(isEditing ? null : h.id)}>
+                      {isEditing ? "Done" : "Edit"}
+                    </button>
+                    <button className="pf-btn pf-btn-danger" style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => removeHolding(h.id)}>×</button>
+                  </div>
+                </div>
+
+                {/* Inline edit */}
+                {isEditing && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 10, padding: 10, background: "#0a0c10", borderRadius: 6 }}>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Qty</div><input className="pf-input" type="number" step="any" value={h.quantity} onChange={e => updateHolding(h.id, "quantity", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Cost Basis</div><input className="pf-input" type="number" step="any" value={h.costBasis} onChange={e => updateHolding(h.id, "costBasis", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Leverage</div><input className="pf-input" type="number" step="0.5" min="1" value={h.leverage} onChange={e => updateHolding(h.id, "leverage", parseFloat(e.target.value) || 1)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Trade Date</div><input className="pf-input" type="date" value={h.tradeDate} onChange={e => updateHolding(h.id, "tradeDate", e.target.value)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div style={{ gridColumn: "1 / -1" }}><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Current Price (manual for equities)</div><input className="pf-input" type="number" step="any" value={h.currentPrice || ""} placeholder="Auto for crypto" onChange={e => updateHolding(h.id, "currentPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                  </div>
+                )}
+
+                {/* Metrics */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 8, color: "#4a5060" }}>Current Price</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.currentPrice)}</div>
+                    {h.change24h !== 0 && <div style={{ fontSize: 9, color: h.change24h >= 0 ? "#22c55e" : "#ef4444" }}>{h.change24h >= 0 ? "▲" : "▼"} {Math.abs(h.change24h).toFixed(2)}% 24h</div>}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 8, color: "#4a5060" }}>Position Value</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.currentValue)}</div>
+                    <div style={{ fontSize: 9, color: "#3a4050" }}>{h.quantity} × {fmtDollar(h.currentPrice)}{h.leverage > 1 ? ` × ${h.leverage}×` : ""}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 8, color: "#4a5060" }}>P&L</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: h.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(h.pnl)}</div>
+                    <div style={{ fontSize: 9, color: h.pnlPct >= 0 ? "#22c55e80" : "#ef444480" }}>{fmtPct(h.pnlPct)}</div>
+                  </div>
+                </div>
+
+                {/* Mini Chart — TradingView for visuals, Binance data for P&L overlay */}
+                {chartData.length > 5 ? (
+                  <ResponsiveContainer width="100%" height={100}>
+                    <AreaChart data={chartData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={`hold-grad-${h.id}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={h.color} stopOpacity={0.2} />
+                          <stop offset="95%" stopColor={h.color} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" hide />
+                      <YAxis hide domain={["dataMin", "dataMax"]} />
+                      <Tooltip
+                        contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 9, fontFamily: "JetBrains Mono" }}
+                        labelFormatter={d => d}
+                        formatter={(v, name) => [name === "price" ? fmtDollar(v) : name === "value" ? fmtDollar(v) : fmtPct(v), name === "price" ? "Price" : name === "value" ? "Value" : "Return"]}
+                      />
+                      <Area type="monotone" dataKey="price" stroke={h.color} fill={`url(#hold-grad-${h.id})`} strokeWidth={1.5} dot={false} />
+                      <ReferenceLine y={h.costBasis} stroke="#4a506040" strokeDasharray="3 3" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div style={{ height: 100, overflow: "hidden", borderRadius: 6, background: "#0a0c10" }}>
+                    <TvMiniChart symbol={h.tvSymbol} height={100} />
+                  </div>
+                )}
+
+                {/* Cost basis line label */}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#3a4050", marginTop: 4 }}>
+                  <span>Cost: {fmtDollar(h.costBasis)}</span>
+                  <span>Total Cost: {fmtDollar(h.effectiveCost)}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ─── HOLDINGS: TABLE VIEW ─── */}
+      {viewMode === "table" && (
+        <div className="pf-card" style={{ marginBottom: 20 }}>
+          <div style={{ overflowX: "auto" }}>
+            <table className="pf-table">
+              <thead><tr>
+                <th style={{ textAlign: "left" }}>Asset</th>
+                <th>Type</th>
+                <th>Qty</th>
+                <th>Cost Basis</th>
+                <th>Total Cost</th>
+                <th>Current Price</th>
+                <th>24h</th>
+                <th>Value</th>
+                <th>Leverage</th>
+                <th>P&L ($)</th>
+                <th>P&L (%)</th>
+                <th>Days Held</th>
+                <th>Allocation</th>
+                <th></th>
+              </tr></thead>
+              <tbody>
+                {enrichedHoldings.map(h => (
+                  <tr key={h.id}>
+                    <td style={{ textAlign: "left" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: h.color }} />
+                        <span style={{ fontWeight: 600, color: "#e0e4ec" }}>{h.symbol}</span>
+                        {h.name && <span style={{ color: "#4a5060", fontSize: 10 }}>{h.name}</span>}
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 10 }}>{h.type.includes("crypto") ? "Crypto" : h.type.includes("option") ? "Option" : "Equity"}</td>
+                    <td>{h.quantity}</td>
+                    <td>{fmtDollar(h.costBasis)}</td>
+                    <td>{fmtDollar(h.effectiveCost)}</td>
+                    <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentPrice)}</td>
+                    <td style={{ color: h.change24h >= 0 ? "#22c55e" : "#ef4444", fontSize: 10 }}>
+                      {h.change24h !== 0 ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}
+                    </td>
+                    <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentValue)}</td>
+                    <td>{h.leverage > 1 ? <span style={{ color: "#ef4444", fontWeight: 600 }}>{h.leverage}×</span> : "1×"}</td>
+                    <td style={{ color: h.pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(h.pnl)}</td>
+                    <td style={{ color: h.pnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(h.pnlPct)}</td>
+                    <td>{h.daysHeld}d</td>
+                    <td>{portfolio.totalValue > 0 ? `${(h.currentValue / portfolio.totalValue * 100).toFixed(1)}%` : "—"}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        {onNavigateToChart && <button className="pf-btn" style={{ padding: "2px 6px", fontSize: 9 }} onClick={() => onNavigateToChart(h.tvSymbol)}>📈</button>}
+                        <button className="pf-btn pf-btn-danger" style={{ padding: "2px 6px", fontSize: 9 }} onClick={() => removeHolding(h.id)}>×</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "2px solid #1e2330" }}>
+                  <td style={{ textAlign: "left", fontWeight: 700, color: "#e0e4ec" }} colSpan={4}>Total</td>
+                  <td style={{ fontWeight: 600 }}>{fmtDollar(portfolio.totalCost)}</td>
+                  <td colSpan={2}></td>
+                  <td style={{ fontWeight: 700, color: "#e0e4ec" }}>{fmtDollar(portfolio.totalValue)}</td>
+                  <td></td>
+                  <td style={{ fontWeight: 700, color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.totalPnl)}</td>
+                  <td style={{ fontWeight: 600, color: portfolio.totalPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalPnlPct)}</td>
+                  <td colSpan={3}></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ─── INDIVIDUAL HOLDING CHARTS (expanded) ─── */}
+      {viewMode === "table" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+          {enrichedHoldings.filter(h => holdingChartData(h).length > 5).map(h => {
+            const data = holdingChartData(h)
+            return (
+              <div key={h.id} className="pf-card" style={{ padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: h.color, marginBottom: 8 }}>
+                  {h.symbol} — P&L Since Entry
+                </div>
+                <ResponsiveContainer width="100%" height={140}>
+                  <AreaChart data={data} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id={`tbl-grad-${h.id}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity={0.15} />
+                        <stop offset="50%" stopColor="#22c55e" stopOpacity={0} />
+                        <stop offset="51%" stopColor="#ef4444" stopOpacity={0} />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity={0.15} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" hide />
+                    <YAxis hide />
+                    <Tooltip contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 9, fontFamily: "JetBrains Mono" }}
+                      formatter={(v, name) => [name === "pnl" ? fmtDollar(v) : fmtPct(v), name === "pnl" ? "P&L" : "Return"]} />
+                    <ReferenceLine y={0} stroke="#4a506060" />
+                    <Area type="monotone" dataKey="pnl" stroke={data[data.length - 1]?.pnl >= 0 ? "#22c55e" : "#ef4444"} fill={`url(#tbl-grad-${h.id})`} strokeWidth={1.5} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
