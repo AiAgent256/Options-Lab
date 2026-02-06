@@ -22,6 +22,7 @@ const CRYPTO_MAP = {
   NEAR: "NEARUSDT", ARB: "ARBUSDT", OP: "OPUSDT", SUI: "SUIUSDT", APT: "APTUSDT",
   TIA: "TIAUSDT", SEI: "SEIUSDT", INJ: "INJUSDT", PEPE: "PEPEUSDT", WIF: "WIFUSDT",
   HYPE: "HYPEUSDT", RENDER: "RENDERUSDT", FET: "FETUSDT", TAO: "TAOUSDT",
+  CC: "CCUSDT", "CC/USDT": "CCUSDT",
 }
 
 const EQUITY_TV_MAP = {
@@ -31,11 +32,7 @@ const EQUITY_TV_MAP = {
   AAOI: "NASDAQ:AAOI", COHR: "NASDAQ:COHR",
 }
 
-const DEFAULT_HOLDINGS = [
-  { id: 1, symbol: "BTC", name: "Bitcoin", type: "crypto_spot", quantity: 0.5, costBasis: 42000, leverage: 1, tradeDate: "2024-01-15", notes: "Spot accumulation", currentPrice: 0 },
-  { id: 2, symbol: "ETH", name: "Ethereum", type: "crypto_spot", quantity: 5, costBasis: 2200, leverage: 1, tradeDate: "2024-02-01", notes: "", currentPrice: 0 },
-  { id: 3, symbol: "MSTR", name: "MicroStrategy", type: "equity", quantity: 50, costBasis: 180, leverage: 1, tradeDate: "2024-03-01", notes: "BTC proxy", currentPrice: 0 },
-]
+const DEFAULT_HOLDINGS = []
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fmtDollar = (v) => {
@@ -94,7 +91,7 @@ export default function Portfolio({ onNavigateToChart }) {
   // New holding form state
   const [newHolding, setNewHolding] = useState({
     symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0,
-    leverage: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "",
+    leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "",
   })
 
   // Persist holdings
@@ -106,10 +103,24 @@ export default function Portfolio({ onNavigateToChart }) {
   const cryptoSymbols = useMemo(() => {
     const syms = new Set()
     holdings.forEach(h => {
-      const mapped = CRYPTO_MAP[h.symbol.toUpperCase()]
+      const sym = h.symbol.toUpperCase().replace("/", "")
+      const mapped = CRYPTO_MAP[sym] || CRYPTO_MAP[h.symbol.toUpperCase()]
       if (mapped) syms.add(mapped)
     })
     return [...syms]
+  }, [holdings])
+
+  // Earliest trade date per symbol (for fetching enough history)
+  const earliestDates = useMemo(() => {
+    const map = {}
+    holdings.forEach(h => {
+      const sym = h.symbol.toUpperCase().replace("/", "")
+      const mapped = CRYPTO_MAP[sym] || CRYPTO_MAP[h.symbol.toUpperCase()]
+      if (!mapped) return
+      const t = new Date(h.tradeDate).getTime()
+      if (!map[mapped] || t < map[mapped]) map[mapped] = t
+    })
+    return map
   }, [holdings])
 
   // Poll live prices every 5s
@@ -132,9 +143,15 @@ export default function Portfolio({ onNavigateToChart }) {
     setHistoryLoading(true)
 
     const rangeDays = { "1M": 30, "3M": 90, "6M": 180, "1Y": 365, "ALL": 1000 }[chartRange] || 180
-    const startTime = Date.now() - rangeDays * 86400000
+    const rangeStart = Date.now() - rangeDays * 86400000
 
-    const requests = cryptoSymbols.map(sym => ({ symbol: sym, startTime, interval: "1d" }))
+    // For each symbol, use the earlier of: chartRange start or earliest trade date
+    const requests = cryptoSymbols.map(sym => {
+      const tradeStart = earliestDates[sym] || rangeStart
+      const startTime = Math.min(tradeStart, rangeStart)
+      return { symbol: sym, startTime, interval: "1d" }
+    })
+
     fetchMultiKlines(requests).then(data => {
       if (active) {
         setHistoricalData(data)
@@ -142,26 +159,46 @@ export default function Portfolio({ onNavigateToChart }) {
       }
     })
     return () => { active = false }
-  }, [cryptoSymbols, chartRange])
+  }, [cryptoSymbols, chartRange, earliestDates])
 
   // ─── ENRICH HOLDINGS WITH LIVE DATA ─────────────────────────────────────
   const enrichedHoldings = useMemo(() => {
     return holdings.map((h, i) => {
-      const binanceSym = CRYPTO_MAP[h.symbol.toUpperCase()]
+      const binanceSym = CRYPTO_MAP[h.symbol.toUpperCase()] || CRYPTO_MAP[h.symbol.toUpperCase().replace("/", "")]
       const live = binanceSym ? liveData[binanceSym] : null
       const currentPrice = live ? live.price : (h.currentPrice || h.costBasis)
       const change24h = live ? live.change : 0
 
-      // Position math
-      const effectiveCost = h.costBasis * h.quantity
-      const currentValue = currentPrice * h.quantity * (h.leverage || 1)
-      const costWithLeverage = effectiveCost // cost basis is what you actually paid
-      const pnl = currentValue - costWithLeverage
-      const pnlPct = costWithLeverage > 0 ? pnl / costWithLeverage : 0
+      const isLeveraged = (h.type === "crypto_perp" || h.type === "option_long" || h.type === "option_short") && (h.leverage || 1) > 1
+      const direction = h.type === "option_short" ? -1 : 1 // short = inverse P&L
 
-      // Leveraged P&L: if leverage > 1, P&L is amplified from price move
-      const priceMove = h.costBasis > 0 ? (currentPrice - h.costBasis) / h.costBasis : 0
-      const leveragedReturn = priceMove * (h.leverage || 1)
+      // ── POSITION MATH ──
+      // Notional = full position size at market
+      const notional = h.quantity * currentPrice
+      const entryNotional = h.quantity * h.costBasis
+
+      let margin, equity, pnl, pnlPct, portfolioValue
+
+      if (isLeveraged) {
+        // Leveraged position: user puts up margin, P&L is amplified
+        // margin = what you actually deposited (user can override, else calculated)
+        margin = h.margin > 0 ? h.margin : (entryNotional / (h.leverage || 1))
+        // unrealized P&L on the full notional
+        pnl = (currentPrice - h.costBasis) * h.quantity * direction
+        // equity = your actual money right now
+        equity = margin + pnl
+        // P&L% relative to your margin (real money at risk)
+        pnlPct = margin > 0 ? pnl / margin : 0
+        // Portfolio contribution = your equity, NOT the notional
+        portfolioValue = equity
+      } else {
+        // Spot / equity: straightforward
+        margin = h.quantity * h.costBasis // "margin" = total cost for spot
+        equity = h.quantity * currentPrice
+        pnl = equity - margin
+        pnlPct = margin > 0 ? pnl / margin : 0
+        portfolioValue = equity
+      }
 
       // Days held
       const tradeDate = new Date(h.tradeDate)
@@ -171,8 +208,8 @@ export default function Portfolio({ onNavigateToChart }) {
       const tvSymbol = binanceSym ? `BINANCE:${binanceSym}` : (EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol)
 
       return {
-        ...h, currentPrice, change24h, effectiveCost, currentValue, costWithLeverage,
-        pnl, pnlPct, leveragedReturn, daysHeld, tvSymbol, binanceSym,
+        ...h, currentPrice, change24h, binanceSym, tvSymbol, daysHeld, direction,
+        isLeveraged, margin, notional, entryNotional, equity, pnl, pnlPct, portfolioValue,
         color: COLORS[i % COLORS.length],
       }
     })
@@ -180,22 +217,24 @@ export default function Portfolio({ onNavigateToChart }) {
 
   // ─── PORTFOLIO AGGREGATES ───────────────────────────────────────────────
   const portfolio = useMemo(() => {
-    const totalCost = enrichedHoldings.reduce((s, h) => s + h.costWithLeverage, 0)
-    const totalValue = enrichedHoldings.reduce((s, h) => s + h.currentValue, 0)
-    const totalPnl = totalValue - totalCost
-    const totalPnlPct = totalCost > 0 ? totalPnl / totalCost : 0
+    const totalMargin = enrichedHoldings.reduce((s, h) => s + h.margin, 0)
+    const totalEquity = enrichedHoldings.reduce((s, h) => s + h.portfolioValue, 0)
+    const totalPnl = enrichedHoldings.reduce((s, h) => s + h.pnl, 0)
+    const totalPnlPct = totalMargin > 0 ? totalPnl / totalMargin : 0
+    const totalNotional = enrichedHoldings.reduce((s, h) => s + h.notional, 0)
 
-    // Allocation data for pie chart
+    // Allocation based on portfolio value (equity), not notional
     const allocation = enrichedHoldings.map(h => ({
-      name: h.symbol, value: Math.max(0, h.currentValue), color: h.color, pct: totalValue > 0 ? h.currentValue / totalValue : 0,
+      name: h.symbol, value: Math.max(0, h.portfolioValue), color: h.color,
+      pct: totalEquity > 0 ? Math.max(0, h.portfolioValue) / totalEquity : 0,
     }))
 
-    // Best / worst performers
+    // Best / worst performers by P&L%
     const sorted = [...enrichedHoldings].sort((a, b) => b.pnlPct - a.pnlPct)
     const best = sorted[0]
     const worst = sorted[sorted.length - 1]
 
-    return { totalCost, totalValue, totalPnl, totalPnlPct, allocation, best, worst }
+    return { totalMargin, totalEquity, totalPnl, totalPnlPct, totalNotional, allocation, best, worst }
   }, [enrichedHoldings])
 
   // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
@@ -207,34 +246,39 @@ export default function Portfolio({ onNavigateToChart }) {
     Object.values(historicalData).forEach(klines => klines.forEach(k => allDates.add(k.date)))
     const sortedDates = [...allDates].sort()
 
-    // For each date, compute portfolio value
+    // For each date, compute portfolio equity (real money value)
     return sortedDates.map(date => {
-      let totalValue = 0
-      let totalCost = 0
+      let totalEquity = 0
+      let totalMargin = 0
 
       enrichedHoldings.forEach(h => {
-        const klines = historicalData[h.binanceSym]
-        if (!klines) {
-          // Non-crypto: use cost basis as constant (no historical data)
-          if (new Date(date) >= new Date(h.tradeDate)) {
-            totalValue += h.costBasis * h.quantity * (h.leverage || 1)
-            totalCost += h.costWithLeverage
-          }
-          return
-        }
-
         // Only include if trade date is before or on this date
         if (new Date(date) < new Date(h.tradeDate)) return
+
+        const klines = historicalData[h.binanceSym]
+        if (!klines) {
+          // Non-crypto: use margin as constant (no historical data available)
+          totalEquity += h.margin
+          totalMargin += h.margin
+          return
+        }
 
         // Find closest kline for this date
         const kline = klines.find(k => k.date === date) || klines.filter(k => k.date <= date).pop()
         if (kline) {
-          totalValue += kline.close * h.quantity * (h.leverage || 1)
-          totalCost += h.costWithLeverage
+          if (h.isLeveraged) {
+            // Equity = margin + unrealized P&L on notional
+            const unrealizedPnl = (kline.close - h.costBasis) * h.quantity * h.direction
+            totalEquity += h.margin + unrealizedPnl
+          } else {
+            // Spot: value = qty × price
+            totalEquity += kline.close * h.quantity
+          }
+          totalMargin += h.margin
         }
       })
 
-      return { date, totalValue, totalCost, pnl: totalValue - totalCost }
+      return { date, totalEquity, totalMargin, pnl: totalEquity - totalMargin }
     })
   }, [historicalData, enrichedHoldings])
 
@@ -244,13 +288,23 @@ export default function Portfolio({ onNavigateToChart }) {
     if (!klines || klines.length === 0) return []
     return klines
       .filter(k => new Date(k.date) >= new Date(holding.tradeDate))
-      .map(k => ({
-        date: k.date,
-        price: k.close,
-        value: k.close * holding.quantity * (holding.leverage || 1),
-        pnl: (k.close - holding.costBasis) * holding.quantity * (holding.leverage || 1),
-        pnlPct: holding.costBasis > 0 ? (k.close - holding.costBasis) / holding.costBasis * (holding.leverage || 1) : 0,
-      }))
+      .map(k => {
+        let equity, pnl
+        if (holding.isLeveraged) {
+          pnl = (k.close - holding.costBasis) * holding.quantity * holding.direction
+          equity = holding.margin + pnl
+        } else {
+          equity = k.close * holding.quantity
+          pnl = equity - holding.margin
+        }
+        return {
+          date: k.date,
+          price: k.close,
+          equity,
+          pnl,
+          pnlPct: holding.margin > 0 ? pnl / holding.margin : 0,
+        }
+      })
   }, [historicalData])
 
   // ─── CRUD ───────────────────────────────────────────────────────────────
@@ -258,7 +312,7 @@ export default function Portfolio({ onNavigateToChart }) {
     if (!newHolding.symbol.trim()) return
     setHoldings(prev => [...prev, { ...newHolding, id: nextId, currentPrice: 0, symbol: newHolding.symbol.toUpperCase() }])
     setNextId(p => p + 1)
-    setNewHolding({ symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0, leverage: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "" })
+    setNewHolding({ symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0, leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "" })
     setShowAddForm(false)
   }
 
@@ -297,9 +351,9 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* ─── PORTFOLIO HEADER ─── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "2px", color: "#4a5060", marginBottom: 4 }}>Portfolio Value</div>
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "2px", color: "#4a5060", marginBottom: 4 }}>Portfolio Equity</div>
           <div style={{ fontSize: 32, fontWeight: 700, color: "#e0e4ec", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-1px" }}>
-            {fmtDollar(portfolio.totalValue)}
+            {fmtDollar(portfolio.totalEquity)}
           </div>
           <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 12 }}>
             <span style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
@@ -309,7 +363,10 @@ export default function Portfolio({ onNavigateToChart }) {
               {fmtPct(portfolio.totalPnlPct)}
             </span>
             <span style={{ color: "#3a4050" }}>·</span>
-            <span style={{ color: "#4a5060" }}>Cost: {fmtDollar(portfolio.totalCost)}</span>
+            <span style={{ color: "#4a5060" }}>Margin: {fmtDollar(portfolio.totalMargin)}</span>
+            {portfolio.totalNotional !== portfolio.totalEquity && (
+              <span style={{ color: "#3a4050" }}>Notional: {fmtDollar(portfolio.totalNotional)}</span>
+            )}
             <span style={{ color: "#4a5060" }}>{enrichedHoldings.length} positions</span>
           </div>
         </div>
@@ -364,7 +421,7 @@ export default function Portfolio({ onNavigateToChart }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
             <div>
               <div className="pf-label">Symbol</div>
-              <input className="pf-input" type="text" placeholder="BTC, MSTR, etc." value={newHolding.symbol}
+              <input className="pf-input" type="text" placeholder="BTC, MSTR, CC, etc." value={newHolding.symbol}
                 onChange={e => setNewHolding(p => ({ ...p, symbol: e.target.value }))} />
             </div>
             <div>
@@ -378,21 +435,39 @@ export default function Portfolio({ onNavigateToChart }) {
                 {ASSET_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
+            {(newHolding.type === "crypto_perp" || newHolding.type === "option_short") && (
+              <div>
+                <div className="pf-label">Direction</div>
+                <select className="pf-input" value={newHolding.direction} onChange={e => setNewHolding(p => ({ ...p, direction: parseInt(e.target.value) }))}>
+                  <option value={1}>Long</option>
+                  <option value={-1}>Short</option>
+                </select>
+              </div>
+            )}
             <div>
-              <div className="pf-label">Quantity</div>
+              <div className="pf-label">Quantity (tokens)</div>
               <input className="pf-input" type="number" step="any" value={newHolding.quantity || ""}
                 onChange={e => setNewHolding(p => ({ ...p, quantity: parseFloat(e.target.value) || 0 }))} />
             </div>
             <div>
-              <div className="pf-label">Cost Basis (per unit)</div>
+              <div className="pf-label">Entry Price (per unit)</div>
               <input className="pf-input" type="number" step="any" value={newHolding.costBasis || ""}
                 onChange={e => setNewHolding(p => ({ ...p, costBasis: parseFloat(e.target.value) || 0 }))} />
             </div>
-            <div>
-              <div className="pf-label">Leverage</div>
-              <input className="pf-input" type="number" step="0.5" min="1" value={newHolding.leverage}
-                onChange={e => setNewHolding(p => ({ ...p, leverage: parseFloat(e.target.value) || 1 }))} />
-            </div>
+            {(newHolding.type === "crypto_perp") && (
+              <>
+                <div>
+                  <div className="pf-label">Leverage</div>
+                  <input className="pf-input" type="number" step="0.5" min="1" value={newHolding.leverage}
+                    onChange={e => setNewHolding(p => ({ ...p, leverage: parseFloat(e.target.value) || 1 }))} />
+                </div>
+                <div>
+                  <div className="pf-label">Margin (actual $ in)</div>
+                  <input className="pf-input" type="number" step="any" placeholder="Auto from qty×entry÷leverage" value={newHolding.margin || ""}
+                    onChange={e => setNewHolding(p => ({ ...p, margin: parseFloat(e.target.value) || 0 }))} />
+                </div>
+              </>
+            )}
             <div>
               <div className="pf-label">Trade Date</div>
               <input className="pf-input" type="date" value={newHolding.tradeDate}
@@ -404,6 +479,14 @@ export default function Portfolio({ onNavigateToChart }) {
                 onChange={e => setNewHolding(p => ({ ...p, notes: e.target.value }))} />
             </div>
           </div>
+          {/* Show computed values preview */}
+          {newHolding.quantity > 0 && newHolding.costBasis > 0 && newHolding.type === "crypto_perp" && (
+            <div style={{ marginTop: 10, padding: "8px 12px", background: "#0a0c10", borderRadius: 6, display: "flex", gap: 20, fontSize: 10, color: "#5a6070" }}>
+              <span>Notional: <span style={{ color: "#8890a0" }}>{fmtDollar(newHolding.quantity * newHolding.costBasis)}</span></span>
+              <span>Margin (calc): <span style={{ color: "#8890a0" }}>{fmtDollar(newHolding.quantity * newHolding.costBasis / (newHolding.leverage || 1))}</span></span>
+              {newHolding.margin > 0 && <span>Margin (yours): <span style={{ color: "#22c55e" }}>{fmtDollar(newHolding.margin)}</span></span>}
+            </div>
+          )}
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
             <button className="pf-btn pf-btn-primary" onClick={addHolding}>Add to Portfolio</button>
           </div>
@@ -413,19 +496,19 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* ─── SUMMARY METRICS ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 20 }}>
         <div className="pf-metric">
-          <div className="pf-label">Total Cost</div>
-          <div className="pf-value">{fmtDollar(portfolio.totalCost)}</div>
+          <div className="pf-label">Total Margin / Cost</div>
+          <div className="pf-value">{fmtDollar(portfolio.totalMargin)}</div>
         </div>
         <div className="pf-metric">
-          <div className="pf-label">Total Value</div>
-          <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalValue)}</div>
+          <div className="pf-label">Portfolio Equity</div>
+          <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</div>
         </div>
         <div className="pf-metric">
           <div className="pf-label">Unrealized P&L</div>
           <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.totalPnl)}</div>
         </div>
         <div className="pf-metric">
-          <div className="pf-label">Return</div>
+          <div className="pf-label">Return on Margin</div>
           <div className="pf-value" style={{ color: portfolio.totalPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalPnlPct)}</div>
         </div>
         {portfolio.best && (
@@ -448,7 +531,7 @@ export default function Portfolio({ onNavigateToChart }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, marginBottom: 20 }}>
         <div className="pf-card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Value Over Time</div>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Equity Over Time</div>
             <div style={{ display: "flex", gap: 2 }}>
               {["1M", "3M", "6M", "1Y", "ALL"].map(r => (
                 <button key={r} className={`pf-btn ${chartRange === r ? "pf-btn-primary" : ""}`}
@@ -479,11 +562,11 @@ export default function Portfolio({ onNavigateToChart }) {
                 <YAxis yAxisId="pnl" orientation="right" tick={{ fontSize: 8, fill: "#4a506060" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
                 <Tooltip
                   contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 10, fontFamily: "JetBrains Mono" }}
-                  formatter={(v, name) => [fmtDollar(v), name === "totalValue" ? "Value" : name === "pnl" ? "P&L" : "Cost"]}
+                  formatter={(v, name) => [fmtDollar(v), name === "totalEquity" ? "Equity" : name === "pnl" ? "P&L" : "Margin"]}
                 />
                 <ReferenceLine yAxisId="pnl" y={0} stroke="#4a506040" />
-                <Area yAxisId="val" type="monotone" dataKey="totalValue" stroke="#3b82f6" fill="url(#pf-val-grad)" strokeWidth={2} dot={false} />
-                <Line yAxisId="val" type="monotone" dataKey="totalCost" stroke="#4a506060" strokeWidth={1} dot={false} strokeDasharray="4 4" />
+                <Area yAxisId="val" type="monotone" dataKey="totalEquity" stroke="#3b82f6" fill="url(#pf-val-grad)" strokeWidth={2} dot={false} />
+                <Line yAxisId="val" type="monotone" dataKey="totalMargin" stroke="#4a506060" strokeWidth={1} dot={false} strokeDasharray="4 4" />
                 <Area yAxisId="pnl" type="monotone" dataKey="pnl" stroke="none" fill="url(#pf-pnl-grad)" dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
@@ -573,26 +656,44 @@ export default function Portfolio({ onNavigateToChart }) {
                 {/* Inline edit */}
                 {isEditing && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 10, padding: 10, background: "#0a0c10", borderRadius: 6 }}>
-                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Qty</div><input className="pf-input" type="number" step="any" value={h.quantity} onChange={e => updateHolding(h.id, "quantity", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
-                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Cost Basis</div><input className="pf-input" type="number" step="any" value={h.costBasis} onChange={e => updateHolding(h.id, "costBasis", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Qty (tokens)</div><input className="pf-input" type="number" step="any" value={h.quantity} onChange={e => updateHolding(h.id, "quantity", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Entry Price</div><input className="pf-input" type="number" step="any" value={h.costBasis} onChange={e => updateHolding(h.id, "costBasis", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Leverage</div><input className="pf-input" type="number" step="0.5" min="1" value={h.leverage} onChange={e => updateHolding(h.id, "leverage", parseFloat(e.target.value) || 1)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Trade Date</div><input className="pf-input" type="date" value={h.tradeDate} onChange={e => updateHolding(h.id, "tradeDate", e.target.value)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
-                    <div style={{ gridColumn: "1 / -1" }}><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Current Price (manual for equities)</div><input className="pf-input" type="number" step="any" value={h.currentPrice || ""} placeholder="Auto for crypto" onChange={e => updateHolding(h.id, "currentPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    {h.isLeveraged && (
+                      <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Margin (actual $ in)</div><input className="pf-input" type="number" step="any" value={h.margin || ""} placeholder="Auto" onChange={e => updateHolding(h.id, "margin", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    )}
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Current Price (manual)</div><input className="pf-input" type="number" step="any" value={h.currentPrice || ""} placeholder="Auto for crypto" onChange={e => updateHolding(h.id, "currentPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                   </div>
                 )}
 
                 {/* Metrics */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: h.isLeveraged ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
                   <div>
                     <div style={{ fontSize: 8, color: "#4a5060" }}>Current Price</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.currentPrice)}</div>
                     {h.change24h !== 0 && <div style={{ fontSize: 9, color: h.change24h >= 0 ? "#22c55e" : "#ef4444" }}>{h.change24h >= 0 ? "▲" : "▼"} {Math.abs(h.change24h).toFixed(2)}% 24h</div>}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 8, color: "#4a5060" }}>Position Value</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.currentValue)}</div>
-                    <div style={{ fontSize: 9, color: "#3a4050" }}>{h.quantity} × {fmtDollar(h.currentPrice)}{h.leverage > 1 ? ` × ${h.leverage}×` : ""}</div>
-                  </div>
+                  {h.isLeveraged ? (
+                    <>
+                      <div>
+                        <div style={{ fontSize: 8, color: "#4a5060" }}>Margin (your $)</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.margin)}</div>
+                        <div style={{ fontSize: 9, color: "#3a4050" }}>Notional: {fmtDollar(h.notional)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 8, color: "#4a5060" }}>Equity</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: h.equity >= h.margin ? "#22c55e" : "#ef4444" }}>{fmtDollar(h.equity)}</div>
+                        <div style={{ fontSize: 9, color: "#3a4050" }}>{h.leverage}× {h.direction === 1 ? "Long" : "Short"}</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 8, color: "#4a5060" }}>Position Value</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.equity)}</div>
+                      <div style={{ fontSize: 9, color: "#3a4050" }}>{h.quantity} × {fmtDollar(h.currentPrice)}</div>
+                    </div>
+                  )}
                   <div>
                     <div style={{ fontSize: 8, color: "#4a5060" }}>P&L</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: h.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(h.pnl)}</div>
@@ -615,7 +716,7 @@ export default function Portfolio({ onNavigateToChart }) {
                       <Tooltip
                         contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 9, fontFamily: "JetBrains Mono" }}
                         labelFormatter={d => d}
-                        formatter={(v, name) => [name === "price" ? fmtDollar(v) : name === "value" ? fmtDollar(v) : fmtPct(v), name === "price" ? "Price" : name === "value" ? "Value" : "Return"]}
+                        formatter={(v, name) => [name === "price" ? fmtDollar(v) : name === "equity" ? fmtDollar(v) : fmtPct(v), name === "price" ? "Price" : name === "equity" ? "Equity" : "Return"]}
                       />
                       <Area type="monotone" dataKey="price" stroke={h.color} fill={`url(#hold-grad-${h.id})`} strokeWidth={1.5} dot={false} />
                       <ReferenceLine y={h.costBasis} stroke="#4a506040" strokeDasharray="3 3" />
@@ -629,8 +730,12 @@ export default function Portfolio({ onNavigateToChart }) {
 
                 {/* Cost basis line label */}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#3a4050", marginTop: 4 }}>
-                  <span>Cost: {fmtDollar(h.costBasis)}</span>
-                  <span>Total Cost: {fmtDollar(h.effectiveCost)}</span>
+                  <span>Entry: {fmtDollar(h.costBasis)}</span>
+                  {h.isLeveraged ? (
+                    <span>Margin: {fmtDollar(h.margin)} · Notional: {fmtDollar(h.notional)}</span>
+                  ) : (
+                    <span>Cost: {fmtDollar(h.margin)}</span>
+                  )}
                 </div>
               </div>
             )
@@ -647,16 +752,16 @@ export default function Portfolio({ onNavigateToChart }) {
                 <th style={{ textAlign: "left" }}>Asset</th>
                 <th>Type</th>
                 <th>Qty</th>
-                <th>Cost Basis</th>
-                <th>Total Cost</th>
+                <th>Entry Price</th>
+                <th>Margin / Cost</th>
                 <th>Current Price</th>
                 <th>24h</th>
-                <th>Value</th>
-                <th>Leverage</th>
+                <th>Equity</th>
+                <th>Notional</th>
                 <th>P&L ($)</th>
                 <th>P&L (%)</th>
-                <th>Days Held</th>
-                <th>Allocation</th>
+                <th>Days</th>
+                <th>Alloc</th>
                 <th></th>
               </tr></thead>
               <tbody>
@@ -669,20 +774,22 @@ export default function Portfolio({ onNavigateToChart }) {
                         {h.name && <span style={{ color: "#4a5060", fontSize: 10 }}>{h.name}</span>}
                       </div>
                     </td>
-                    <td style={{ fontSize: 10 }}>{h.type.includes("crypto") ? "Crypto" : h.type.includes("option") ? "Option" : "Equity"}</td>
-                    <td>{h.quantity}</td>
+                    <td style={{ fontSize: 10 }}>
+                      {h.type === "crypto_perp" ? <span>{h.leverage}× {h.direction === 1 ? "L" : "S"}</span> : h.type.includes("crypto") ? "Spot" : h.type.includes("option") ? "Option" : "Equity"}
+                    </td>
+                    <td>{h.quantity.toLocaleString()}</td>
                     <td>{fmtDollar(h.costBasis)}</td>
-                    <td>{fmtDollar(h.effectiveCost)}</td>
+                    <td>{fmtDollar(h.margin)}</td>
                     <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentPrice)}</td>
                     <td style={{ color: h.change24h >= 0 ? "#22c55e" : "#ef4444", fontSize: 10 }}>
                       {h.change24h !== 0 ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}
                     </td>
-                    <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentValue)}</td>
-                    <td>{h.leverage > 1 ? <span style={{ color: "#ef4444", fontWeight: 600 }}>{h.leverage}×</span> : "1×"}</td>
+                    <td style={{ fontWeight: 600, color: h.equity >= h.margin ? "#22c55e" : "#ef4444" }}>{fmtDollar(h.equity)}</td>
+                    <td style={{ color: "#4a5060" }}>{h.isLeveraged ? fmtDollar(h.notional) : "—"}</td>
                     <td style={{ color: h.pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(h.pnl)}</td>
                     <td style={{ color: h.pnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(h.pnlPct)}</td>
                     <td>{h.daysHeld}d</td>
-                    <td>{portfolio.totalValue > 0 ? `${(h.currentValue / portfolio.totalValue * 100).toFixed(1)}%` : "—"}</td>
+                    <td>{portfolio.totalEquity > 0 ? `${(Math.max(0, h.portfolioValue) / portfolio.totalEquity * 100).toFixed(1)}%` : "—"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                         {onNavigateToChart && <button className="pf-btn" style={{ padding: "2px 6px", fontSize: 9 }} onClick={() => onNavigateToChart(h.tvSymbol)}>📈</button>}
@@ -695,10 +802,10 @@ export default function Portfolio({ onNavigateToChart }) {
               <tfoot>
                 <tr style={{ borderTop: "2px solid #1e2330" }}>
                   <td style={{ textAlign: "left", fontWeight: 700, color: "#e0e4ec" }} colSpan={4}>Total</td>
-                  <td style={{ fontWeight: 600 }}>{fmtDollar(portfolio.totalCost)}</td>
+                  <td style={{ fontWeight: 600 }}>{fmtDollar(portfolio.totalMargin)}</td>
                   <td colSpan={2}></td>
-                  <td style={{ fontWeight: 700, color: "#e0e4ec" }}>{fmtDollar(portfolio.totalValue)}</td>
-                  <td></td>
+                  <td style={{ fontWeight: 700, color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</td>
+                  <td style={{ color: "#4a5060" }}>{fmtDollar(portfolio.totalNotional)}</td>
                   <td style={{ fontWeight: 700, color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.totalPnl)}</td>
                   <td style={{ fontWeight: 600, color: portfolio.totalPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalPnlPct)}</td>
                   <td colSpan={3}></td>
