@@ -283,7 +283,7 @@ export default function Portfolio({ onNavigateToChart }) {
 
       return { date, totalEquity, totalMargin, pnl: totalEquity - totalMargin }
     })
-  }, [historicalData, enrichedHoldings])
+  }, [historicalData, enrichedHoldings, chartRange, customFrom, customTo])
 
   // ─── INDIVIDUAL HOLDING CHART DATA ──────────────────────────────────────
   const holdingChartData = useCallback((holding) => {
@@ -586,7 +586,9 @@ export default function Portfolio({ onNavigateToChart }) {
             </ResponsiveContainer>
           ) : (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: "#3a4050", fontSize: 11 }}>
-              {historyLoading ? "Loading historical data..." : "Add crypto holdings to see portfolio chart"}
+              {historyLoading ? "Loading historical data from exchanges..." : 
+               Object.keys(historicalData).length === 0 ? "No kline data returned — check browser console (F12) for details" :
+               "No chart data for selected range"}
             </div>
           )}
         </div>
@@ -866,3 +868,4 @@ export default function Portfolio({ onNavigateToChart }) {
     </div>
   )
 }
+
