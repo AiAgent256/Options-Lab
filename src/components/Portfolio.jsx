@@ -130,7 +130,8 @@ export default function Portfolio({ onNavigateToChart }) {
     let rangeStart
     if (chartRange === "CUSTOM" && customFrom) {
       rangeStart = new Date(customFrom).getTime()
-    } else if (chartRange === "ALL") {
+    } else if (chartRange === "ALL" || chartRange === "1D") {
+      // 1D and ALL both fetch from earliest trade date
       const allTradeDates = Object.values(earliestDates)
       rangeStart = allTradeDates.length > 0 ? Math.min(...allTradeDates) : Date.now() - 365 * 86400000
     } else {
@@ -198,8 +199,15 @@ export default function Portfolio({ onNavigateToChart }) {
       const tradeDate = new Date(h.tradeDate)
       const daysHeld = Math.max(0, Math.round((Date.now() - tradeDate.getTime()) / 86400000))
 
-      // TradingView symbol
-      const tvSymbol = cryptoKey ? `BINANCE:${cryptoKey}USDT` : (EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol)
+      // TradingView symbol — route perps to PHEMEX, spot to BINANCE
+      let tvSymbol
+      if (!cryptoKey) {
+        tvSymbol = EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol
+      } else if (h.type === "crypto_perp") {
+        tvSymbol = `PHEMEX:${cryptoKey}USDT.P`  // Phemex perp on TradingView
+      } else {
+        tvSymbol = `BINANCE:${cryptoKey}USDT`
+      }
 
       return {
         ...h, currentPrice, change24h, cryptoKey, tvSymbol, daysHeld, direction,
@@ -233,56 +241,72 @@ export default function Portfolio({ onNavigateToChart }) {
 
   // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
   const portfolioChart = useMemo(() => {
-    if (Object.keys(historicalData).length === 0) return []
+    const hdKeys = Object.keys(historicalData)
+    const hdCounts = Object.fromEntries(hdKeys.map(k => [k, historicalData[k].length]))
+    console.log(`[Chart] historicalData keys:`, hdKeys, `counts:`, hdCounts)
+    console.log(`[Chart] enriched cryptoKeys:`, enrichedHoldings.map(h => `${h.symbol}→${h.cryptoKey}`))
 
-    // Build a unified date axis from all kline data
+    if (hdKeys.length === 0) return []
+
+    // Build unified date axis
     const allDates = new Set()
     Object.values(historicalData).forEach(klines => klines.forEach(k => allDates.add(k.date)))
     let sortedDates = [...allDates].sort()
+    console.log(`[Chart] raw dates: ${sortedDates.length} (${sortedDates[0]} → ${sortedDates[sortedDates.length - 1]})`)
 
-    // Filter dates by chart range for display
+    // Filter dates by range
     if (chartRange === "CUSTOM" && customFrom) {
       sortedDates = sortedDates.filter(d => d >= customFrom && (!customTo || d <= customTo))
-    } else if (chartRange !== "ALL") {
+    } else if (chartRange !== "ALL" && chartRange !== "1D") {
       const rangeDays = { "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365 }[chartRange] || 180
       const cutoff = new Date(Date.now() - rangeDays * 86400000).toISOString().split("T")[0]
       sortedDates = sortedDates.filter(d => d >= cutoff)
     }
 
-    // For each date, compute portfolio equity (real money value)
-    return sortedDates.map(date => {
+    console.log(`[Chart] filtered dates (${chartRange}): ${sortedDates.length}`)
+
+    const chartData = sortedDates.map(date => {
       let totalEquity = 0
       let totalMargin = 0
+      let active = 0
 
       enrichedHoldings.forEach(h => {
-        // Only include if trade date is before or on this date
-        if (new Date(date) < new Date(h.tradeDate)) return
+        // String comparison works for YYYY-MM-DD format
+        if (date < h.tradeDate) return
 
         const klines = historicalData[h.cryptoKey]
-        if (!klines) {
-          // Non-crypto: use margin as constant (no historical data available)
+        if (!klines || klines.length === 0) {
+          // No kline data — use margin as flat value
           totalEquity += h.margin
           totalMargin += h.margin
+          active++
           return
         }
 
-        // Find closest kline for this date
-        const kline = klines.find(k => k.date === date) || klines.filter(k => k.date <= date).pop()
+        // Find closest kline ≤ date (reverse scan)
+        let kline = null
+        for (let i = klines.length - 1; i >= 0; i--) {
+          if (klines[i].date <= date) { kline = klines[i]; break }
+        }
+        if (!kline) kline = klines[0] // fallback to first
+
         if (kline) {
           if (h.isLeveraged) {
-            // Equity = margin + unrealized P&L on notional
-            const unrealizedPnl = (kline.close - h.costBasis) * h.quantity * h.direction
-            totalEquity += h.margin + unrealizedPnl
+            const uPnl = (kline.close - h.costBasis) * h.quantity * (h.direction || 1)
+            totalEquity += h.margin + uPnl
           } else {
-            // Spot: value = qty × price
             totalEquity += kline.close * h.quantity
           }
           totalMargin += h.margin
+          active++
         }
       })
 
-      return { date, totalEquity, totalMargin, pnl: totalEquity - totalMargin }
-    })
+      return { date, totalEquity, totalMargin, pnl: totalEquity - totalMargin, active }
+    }).filter(d => d.active > 0)
+
+    console.log(`[Chart] final points: ${chartData.length}`, chartData.slice(0, 3))
+    return chartData
   }, [historicalData, enrichedHoldings, chartRange, customFrom, customTo])
 
   // ─── INDIVIDUAL HOLDING CHART DATA ──────────────────────────────────────
@@ -290,7 +314,7 @@ export default function Portfolio({ onNavigateToChart }) {
     const klines = historicalData[holding.cryptoKey]
     if (!klines || klines.length === 0) return []
     return klines
-      .filter(k => new Date(k.date) >= new Date(holding.tradeDate))
+      .filter(k => k.date >= holding.tradeDate)
       .map(k => {
         let equity, pnl
         if (holding.isLeveraged) {
@@ -536,7 +560,7 @@ export default function Portfolio({ onNavigateToChart }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Equity Over Time</div>
             <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
-              {["1W", "1M", "3M", "6M", "1Y", "ALL", "CUSTOM"].map(r => (
+              {["1D", "1W", "1M", "3M", "6M", "1Y", "ALL", "CUSTOM"].map(r => (
                 <button key={r} className={`pf-btn ${chartRange === r ? "pf-btn-primary" : ""}`}
                   style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => setChartRange(r)}>
                   {r}
@@ -555,7 +579,7 @@ export default function Portfolio({ onNavigateToChart }) {
               )}
             </div>
           </div>
-          {portfolioChart.length > 2 ? (
+          {portfolioChart.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={portfolioChart} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                 <defs>
@@ -571,15 +595,15 @@ export default function Portfolio({ onNavigateToChart }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1a1d28" />
-                <XAxis dataKey="date" tick={{ fontSize: 8, fill: "#4a5060" }} tickFormatter={d => d.slice(5)} interval="preserveStartEnd" />
-                <YAxis yAxisId="val" tick={{ fontSize: 8, fill: "#4a5060" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#4a5060" }} interval={portfolioChart.length <= 30 ? 0 : "preserveStartEnd"} />
+                <YAxis yAxisId="val" tick={{ fontSize: 8, fill: "#4a5060" }} tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`} />
                 <YAxis yAxisId="pnl" orientation="right" tick={{ fontSize: 8, fill: "#4a506060" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
                 <Tooltip
                   contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 10, fontFamily: "JetBrains Mono" }}
                   formatter={(v, name) => [fmtDollar(v), name === "totalEquity" ? "Equity" : name === "pnl" ? "P&L" : "Margin"]}
                 />
                 <ReferenceLine yAxisId="pnl" y={0} stroke="#4a506040" />
-                <Area yAxisId="val" type="monotone" dataKey="totalEquity" stroke="#3b82f6" fill="url(#pf-val-grad)" strokeWidth={2} dot={false} />
+                <Area yAxisId="val" type="monotone" dataKey="totalEquity" stroke="#3b82f6" fill="url(#pf-val-grad)" strokeWidth={2} dot={portfolioChart.length <= 60 ? { r: 3, fill: "#3b82f6" } : false} />
                 <Line yAxisId="val" type="monotone" dataKey="totalMargin" stroke="#4a506060" strokeWidth={1} dot={false} strokeDasharray="4 4" />
                 <Area yAxisId="pnl" type="monotone" dataKey="pnl" stroke="none" fill="url(#pf-pnl-grad)" dot={false} />
               </ComposedChart>
@@ -718,7 +742,7 @@ export default function Portfolio({ onNavigateToChart }) {
                 </div>
 
                 {/* Mini Chart — TradingView for visuals, Binance data for P&L overlay */}
-                {chartData.length > 5 ? (
+                {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={100}>
                     <AreaChart data={chartData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
                       <defs>
@@ -727,14 +751,14 @@ export default function Portfolio({ onNavigateToChart }) {
                           <stop offset="95%" stopColor={h.color} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="date" hide />
+                      <XAxis dataKey="date" hide={false} tick={{ fontSize: 7, fill: "#3a4050" }} interval={0} />
                       <YAxis hide domain={["dataMin", "dataMax"]} />
                       <Tooltip
                         contentStyle={{ background: "#12151c", border: "1px solid #1e2330", borderRadius: 6, fontSize: 9, fontFamily: "JetBrains Mono" }}
                         labelFormatter={d => d}
                         formatter={(v, name) => [name === "price" ? fmtDollar(v) : name === "equity" ? fmtDollar(v) : fmtPct(v), name === "price" ? "Price" : name === "equity" ? "Equity" : "Return"]}
                       />
-                      <Area type="monotone" dataKey="price" stroke={h.color} fill={`url(#hold-grad-${h.id})`} strokeWidth={1.5} dot={false} />
+                      <Area type="monotone" dataKey="price" stroke={h.color} fill={`url(#hold-grad-${h.id})`} strokeWidth={1.5} dot={{ r: 3, fill: h.color }} />
                       <ReferenceLine y={h.costBasis} stroke="#4a506040" strokeDasharray="3 3" />
                     </AreaChart>
                   </ResponsiveContainer>
