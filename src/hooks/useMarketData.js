@@ -70,13 +70,14 @@ function resolveExchange(symbol, type) {
   if (isPerp && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
   if (isPerp && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
 
-  // Crypto spot → Coinbase
-  if (!isPerp && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
-  if (!isPerp && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
+  // Crypto spot → Coinbase (skip for equity type)
+  if (type !== "equity" && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
+  if (type !== "equity" && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
 
   // Equities → Yahoo Finance
   if (/^[A-Z]{1,5}$/.test(key)) return { exchange: "yahoo", sym: key, key }
 
+  console.warn(`[Resolve] no exchange for symbol="${symbol}" type="${type}" key="${key}"`)
   return null
 }
 
@@ -360,6 +361,7 @@ export async function fetchTickers(holdings) {
     const resolved = resolveExchange(h.symbol, h.type)
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
+    console.log(`[Ticker] ${h.symbol}(${h.type}) → ${resolved.exchange}:${resolved.sym}`)
 
     tasks.push((async () => {
       let data = null
@@ -391,8 +393,11 @@ export async function fetchAllKlines(requests) {
   const seen = new Set()
   const tasks = []
 
+  console.log(`[Klines] ── Starting with ${requests.length} requests:`, requests.map(r => `${r.symbol}(${r.type})`).join(", "))
+
   for (const req of requests) {
     const resolved = resolveExchange(req.symbol, req.type)
+    console.log(`[Klines] resolve ${req.symbol} (type=${req.type}) →`, resolved ? `${resolved.exchange}:${resolved.sym}` : "NULL")
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
 
