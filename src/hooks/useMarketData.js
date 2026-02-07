@@ -5,7 +5,8 @@
  *   Spot positions   → Coinbase (api.exchange.coinbase.com)
  *   Perp positions   → Phemex   (api.phemex.com)
  * 
- * Klines use 4h interval for intraday granularity.
+ * Coinbase klines: 1h granularity (3600s) — 4h not supported
+ * Phemex klines: 4h granularity (14400s)
  * All requests proxy through Vite dev server to avoid CORS.
  */
 
@@ -53,8 +54,10 @@ function resolveExchange(symbol, type) {
   return null
 }
 
-function toISO(epochSec) {
-  return new Date(epochSec * 1000).toISOString()
+// Convert 1h or 4h date keys to daily for unified chart axis
+// "2026-02-05T08" → "2026-02-05"
+function toDayKey(dateKey) {
+  return dateKey.slice(0, 10)
 }
 
 
@@ -79,11 +82,12 @@ async function coinbase24h(cbSymbol) {
   } catch { return 0 }
 }
 
-// Coinbase candles — 4h (14400s) — REQUIRES ISO 8601 dates
+// Coinbase candles — 1h (3600s) granularity (4h/14400 not supported!)
+// Supported: 60, 300, 900, 3600, 21600, 86400
 async function coinbaseCandles(cbSymbol, startTimeMs) {
-  console.log(`[CB] candles 4h ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+  console.log(`[CB] candles 1h ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   const results = []
-  const granularity = 14400 // 4 hours in seconds
+  const granularity = 3600 // 1 hour — smallest that gives good coverage
   let endSec = Math.floor(Date.now() / 1000)
   const startSec = Math.floor(startTimeMs / 1000)
   let batch = 0
@@ -92,11 +96,10 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
     batch++
     const batchStart = Math.max(startSec, endSec - 299 * granularity)
     try {
-      // Coinbase requires ISO 8601 for start/end
-      const startISO = toISO(batchStart)
-      const endISO = toISO(endSec)
+      const startISO = new Date(batchStart * 1000).toISOString()
+      const endISO = new Date(endSec * 1000).toISOString()
       const url = `/api/coinbase/products/${cbSymbol}/candles?granularity=${granularity}&start=${startISO}&end=${endISO}`
-      console.log(`[CB] batch ${batch}: ${startISO} → ${endISO}`)
+      console.log(`[CB] batch ${batch}: ${startISO.slice(0, 16)} → ${endISO.slice(0, 16)}`)
       const res = await fetch(url)
       if (!res.ok) {
         const body = await res.text().catch(() => "")
@@ -121,10 +124,21 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
     } catch (e) { console.warn(`[CB] candles err:`, e.message); break }
   }
 
-  const byKey = {}
-  for (const r of results) if (r.close > 0) byKey[r.date] = r
-  const sorted = Object.values(byKey).sort((a, b) => a.ts - b.ts)
-  console.log(`[CB] candles ${cbSymbol}: ${sorted.length} total 4h bars`)
+  // Deduplicate by 4h buckets to reduce data density
+  // Group 1h candles into 4h blocks: take the last candle in each 4h window
+  const by4h = {}
+  for (const r of results) {
+    if (r.close <= 0) continue
+    const d = new Date(r.ts)
+    const h4 = Math.floor(d.getUTCHours() / 4) * 4
+    const key = `${d.toISOString().slice(0, 10)}T${String(h4).padStart(2, "0")}`
+    // Keep the latest candle in each 4h window
+    if (!by4h[key] || r.ts > by4h[key].ts) {
+      by4h[key] = { ...r, date: key }
+    }
+  }
+  const sorted = Object.values(by4h).sort((a, b) => a.ts - b.ts)
+  console.log(`[CB] candles ${cbSymbol}: ${results.length} raw 1h → ${sorted.length} 4h bars`)
   return sorted
 }
 
@@ -132,58 +146,59 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
 // ─── PHEMEX ─────────────────────────────────────────────────────────────────
 
 async function phemexTicker(phSymbol) {
-  // Try multiple Phemex ticker endpoints
-  const endpoints = [
-    `/api/phemex/md/v2/ticker/24hr?symbol=${phSymbol}`,
-    `/api/phemex/v1/md/ticker/24hr?symbol=${phSymbol}`,
-    `/api/phemex/md/ticker/24hr?symbol=${phSymbol}`,
-  ]
+  try {
+    // Use the v1 ticker endpoint which returns Rp (raw price) fields
+    const res = await fetch(`/api/phemex/md/v2/ticker/24hr?symbol=${phSymbol}`)
+    if (!res.ok) { console.warn(`[PH] ticker ${phSymbol} → ${res.status}`); return null }
+    const data = await res.json()
 
-  for (const url of endpoints) {
-    try {
-      const res = await fetch(url)
-      if (!res.ok) continue
-      const data = await res.json()
+    console.log(`[PH] ticker raw ${phSymbol}:`, JSON.stringify(data).slice(0, 400))
 
-      console.log(`[PH] ticker raw ${phSymbol}:`, JSON.stringify(data).slice(0, 300))
+    const t = data.result || (Array.isArray(data.data) ? data.data[0] : data.data) || data
 
-      // Navigate to the result object
-      const t = data.result || (Array.isArray(data.data) ? data.data[0] : data.data) || data
-
-      // Try multiple price field names
-      let price = 0
-      for (const field of ["lastPrice", "close", "markPrice", "indexPrice"]) {
-        const val = parseFloat(t[field])
-        if (val > 0) { price = val; break }
+    // Parse price — try Rp fields first (raw price strings), then Ep (scaled int), then plain
+    let price = 0
+    const rpFields = ["closeRp", "lastPriceRp", "markPriceRp", "indexPriceRp"]
+    for (const f of rpFields) {
+      const val = parseFloat(t[f])
+      if (val > 0) { price = val; console.log(`[PH] price from ${f}: ${val}`); break }
+    }
+    if (!price) {
+      const plainFields = ["lastPrice", "close", "markPrice", "indexPrice"]
+      for (const f of plainFields) {
+        const val = parseFloat(t[f])
+        if (val > 0) { price = val; console.log(`[PH] price from ${f}: ${val}`); break }
       }
-
-      // Phemex Ep (scaled integer) format
-      if (!price) {
-        for (const field of ["closeEp", "lastPriceEp", "markPriceEp"]) {
-          const raw = parseInt(t[field])
-          if (raw > 0) {
-            // Auto-detect scale: BTC-class (10^8), USDT-class (10^4)
-            if (raw > 1e12) price = raw / 1e8
-            else if (raw > 1e8) price = raw / 1e4
-            else price = raw / 1e4
-            if (price > 0) break
-          }
+    }
+    if (!price) {
+      const epFields = ["closeEp", "lastPriceEp", "markPriceEp"]
+      for (const f of epFields) {
+        const raw = parseInt(t[f])
+        if (raw > 0) {
+          if (raw > 1e12) price = raw / 1e8
+          else if (raw > 1e8) price = raw / 1e4
+          else price = raw / 1e4
+          if (price > 0) { console.log(`[PH] price from ${f}: ${raw} → ${price}`); break }
         }
       }
+    }
 
-      let change = parseFloat(t.priceChangePercent || t.price24hPcnt || 0)
-      if (Math.abs(change) > 0 && Math.abs(change) < 1) change *= 100
+    // Parse 24h change
+    let change = 0
+    const changeRp = parseFloat(t.price24hPcntRp || t.priceChangePercentRp || 0)
+    if (changeRp) {
+      change = changeRp * 100
+    } else {
+      const openRp = parseFloat(t.openRp || 0)
+      if (openRp > 0 && price > 0) change = ((price - openRp) / openRp) * 100
+    }
 
-      console.log(`[PH] ticker ${phSymbol}: $${price} (${change.toFixed(2)}%)`)
-      if (price > 0) return { price, change }
-    } catch (e) { continue }
-  }
-
-  console.warn(`[PH] ticker ${phSymbol}: all endpoints failed`)
-  return null
+    console.log(`[PH] ticker ${phSymbol}: $${price} (${change.toFixed(2)}%)`)
+    return price > 0 ? { price, change } : null
+  } catch (e) { console.warn(`[PH] ticker err:`, e.message); return null }
 }
 
-// Phemex klines — try multiple endpoint formats
+// Phemex klines — 4h = 14400 seconds
 async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
   console.log(`[PH] klines 4h ${phSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
 
@@ -201,10 +216,11 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
 
   for (const url of endpoints) {
     try {
-      console.log(`[PH] trying: ${url.split("/api/phemex")[1]}`)
+      const shortPath = url.split("/api/phemex")[1]
+      console.log(`[PH] trying: ${shortPath}`)
       const res = await fetch(url)
       if (!res.ok) {
-        console.warn(`[PH] ${res.status} for ${url.split("/api/phemex")[1]}`)
+        console.warn(`[PH] ${res.status} for ${shortPath}`)
         continue
       }
       const data = await res.json()
@@ -220,32 +236,32 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
         continue
       }
 
-      console.log(`[PH] klines ${phSymbol}: ${rows.length} rows, sample:`, JSON.stringify(rows[0]).slice(0, 150))
+      console.log(`[PH] klines ${phSymbol}: ${rows.length} rows, sample:`, JSON.stringify(rows[0]).slice(0, 200))
 
       let results = []
       if (Array.isArray(rows[0])) {
-        // Detect price scale by comparing to ticker
-        let scale = 1
-        if (tickerPrice > 0) {
-          const lastClose = rows[rows.length - 1][6] || rows[rows.length - 1][4]
-          if (lastClose > 0) {
-            const ratio = lastClose / tickerPrice
-            if (ratio > 5) { scale = Math.pow(10, Math.round(Math.log10(ratio))) }
-          }
-          console.log(`[PH] klines scale=${scale} (tickerPrice=${tickerPrice})`)
-        }
+        // Phemex array format (from logs):
+        // [timestamp, resolution, openRp, ?, highRp, lowRp, closeRp, volume, turnover, symbol]
+        // Index 6 = close price as string "0.1716"
+        // Index 5 = low, index 4 = high
+        console.log(`[PH] row length=${rows[0].length}, types: ${rows[0].map((v,i) => `[${i}]${typeof v}`).join(", ")}`)
+
         results = rows.map(row => {
           const ts = (row[0] || 0) * 1000
+          // Index 6 = close price in Rp format (string or number)
+          const close = parseFloat(row[6]) || parseFloat(row[5]) || parseFloat(row[4]) || 0
+
           return {
             ts,
             date: new Date(ts).toISOString().slice(0, 13),
-            close: (row[6] || row[4] || 0) / scale,
+            close,
           }
         })
       } else {
+        // Object format
         results = rows.map(row => {
           const ts = (row.timestamp || row.t || 0) * 1000
-          let close = parseFloat(row.close || row.c || 0)
+          let close = parseFloat(row.closeRp || row.close || row.c || 0)
           if (!close && row.closeEp) {
             const raw = parseInt(row.closeEp)
             close = raw > 1e8 ? raw / 1e4 : raw / 100
@@ -258,7 +274,7 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
       results.sort((a, b) => a.ts - b.ts)
 
       if (results.length > 0) {
-        console.log(`[PH] klines ${phSymbol}: ✅ ${results.length} valid 4h bars`)
+        console.log(`[PH] klines ${phSymbol}: ✅ ${results.length} valid 4h bars, price range: $${results[0].close} → $${results[results.length-1].close}`)
         return results
       }
     } catch (e) { console.warn(`[PH] klines err:`, e.message); continue }
