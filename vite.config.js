@@ -17,11 +17,6 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/phemex/, ''),
       },
-      '/api/binance': {
-        target: 'https://api.binance.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/binance/, ''),
-      },
     },
   },
   build: {
