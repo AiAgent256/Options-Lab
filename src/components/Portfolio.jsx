@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, ReferenceLine, Legend, ComposedChart, PieChart, Pie, Cell } from "recharts"
-import { fetchTickers, fetchAllKlines, normalizeSymbol, isCryptoSymbol } from "../hooks/useMarketData"
+import { fetchTickers, fetchAllKlines, normalizeSymbol, isCryptoSymbol, isTrackedSymbol } from "../hooks/useMarketData"
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#a855f7", "#14b8a6", "#e11d48"]
@@ -20,7 +20,7 @@ const EQUITY_TV_MAP = {
   MSTR: "NASDAQ:MSTR", COIN: "NASDAQ:COIN", MARA: "NASDAQ:MARA", RIOT: "NASDAQ:RIOT",
   CLSK: "NASDAQ:CLSK", HUT: "NASDAQ:HUT", BITF: "NASDAQ:BITF", SPY: "AMEX:SPY",
   QQQ: "NASDAQ:QQQ", AAPL: "NASDAQ:AAPL", TSLA: "NASDAQ:TSLA", NVDA: "NASDAQ:NVDA",
-  AAOI: "NASDAQ:AAOI", COHR: "NASDAQ:COHR",
+  AAOI: "NASDAQ:AAOI", COHR: "NASDAQ:COHR", SMR: "NYSE:SMR",
 }
 
 const DEFAULT_HOLDINGS = []
@@ -92,49 +92,48 @@ export default function Portfolio({ onNavigateToChart }) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings)) } catch {}
   }, [holdings])
 
-  // ─── RESOLVE CRYPTO HOLDINGS ────────────────────────────────────────────
-  const cryptoHoldings = useMemo(() => {
-    return holdings.filter(h => isCryptoSymbol(h.symbol))
+  // ─── RESOLVE TRACKED HOLDINGS (crypto + equity) ────────────────────────
+  const trackedHoldings = useMemo(() => {
+    return holdings.filter(h => isTrackedSymbol(h.symbol, h.type))
   }, [holdings])
 
   // Earliest trade date per normalized key
   const earliestDates = useMemo(() => {
     const map = {}
-    cryptoHoldings.forEach(h => {
+    trackedHoldings.forEach(h => {
       const key = normalizeSymbol(h.symbol)
       const t = new Date(h.tradeDate).getTime()
       if (!map[key] || t < map[key]) map[key] = t
     })
     return map
-  }, [cryptoHoldings])
+  }, [trackedHoldings])
 
-  // ─── POLL LIVE PRICES (Coinbase spot / Phemex perps / Binance fallback) ──
+  // ─── POLL LIVE PRICES (Coinbase / Phemex / Yahoo Finance) ────────────
   useEffect(() => {
-    if (cryptoHoldings.length === 0) return
+    if (trackedHoldings.length === 0) return
     let active = true
     const poll = async () => {
-      const tickers = await fetchTickers(cryptoHoldings)
+      const tickers = await fetchTickers(trackedHoldings)
       if (active) setLiveData(tickers)
     }
     poll()
     const interval = setInterval(poll, 8000)
     return () => { active = false; clearInterval(interval) }
-  }, [cryptoHoldings])
+  }, [trackedHoldings])
 
   // ─── FETCH HISTORICAL KLINES ────────────────────────────────────────────
   useEffect(() => {
-    if (cryptoHoldings.length === 0) return
+    if (trackedHoldings.length === 0) return
     let active = true
     setHistoryLoading(true)
 
-    // Always fetch from earliest trade date — chart range only affects display filtering
+    // Always fetch from earliest trade date
     const allTradeDates = Object.values(earliestDates)
     const rangeStart = allTradeDates.length > 0 ? Math.min(...allTradeDates) : Date.now() - 30 * 86400000
 
-    // Build requests per holding with trade dates
     const seen = new Set()
     const requests = []
-    cryptoHoldings.forEach(h => {
+    trackedHoldings.forEach(h => {
       const key = normalizeSymbol(h.symbol)
       if (seen.has(key)) return
       seen.add(key)
@@ -142,17 +141,21 @@ export default function Portfolio({ onNavigateToChart }) {
       requests.push({ symbol: h.symbol, type: h.type, startTime: Math.min(tradeStart, rangeStart) })
     })
 
+    console.log(`[Portfolio] kline requests:`, requests.map(r => `${r.symbol}(${r.type})`))
+    console.log(`[Portfolio] trackedHoldings:`, trackedHoldings.map(h => `${h.symbol}(${h.type})`))
+
     fetchAllKlines(requests).then(data => {
       if (active) { setHistoricalData(data); setHistoryLoading(false) }
     })
     return () => { active = false }
-  }, [cryptoHoldings])
+  }, [trackedHoldings])
 
   // ─── ENRICH HOLDINGS WITH LIVE DATA ─────────────────────────────────────
   const enrichedHoldings = useMemo(() => {
     return holdings.map((h, i) => {
-      const cryptoKey = isCryptoSymbol(h.symbol) ? normalizeSymbol(h.symbol) : null
-      const live = cryptoKey ? liveData[cryptoKey] : null
+      const tracked = isTrackedSymbol(h.symbol, h.type)
+      const assetKey = tracked ? normalizeSymbol(h.symbol) : null
+      const live = assetKey ? liveData[assetKey] : null
       const currentPrice = live ? live.price : (h.currentPrice || h.costBasis)
       const change24h = live ? live.change : 0
 
@@ -193,17 +196,18 @@ export default function Portfolio({ onNavigateToChart }) {
 
       // TradingView symbol — match the exchange we're actually getting data from
       let tvSymbol
-      if (!cryptoKey) {
-        tvSymbol = EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol
+      if (h.type === "equity") {
+        tvSymbol = EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol.toUpperCase()
       } else if (h.type === "crypto_perp") {
-        tvSymbol = `PHEMEX:${cryptoKey}USDT`
+        tvSymbol = `PHEMEX:${assetKey}USDT`
+      } else if (assetKey) {
+        tvSymbol = `COINBASE:${assetKey}USD`
       } else {
-        // Spot — prefer Coinbase on TV, fallback to Binance
-        tvSymbol = `COINBASE:${cryptoKey}USD`
+        tvSymbol = EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol
       }
 
       return {
-        ...h, currentPrice, change24h, cryptoKey, tvSymbol, daysHeld, direction,
+        ...h, currentPrice, change24h, cryptoKey: assetKey, tvSymbol, daysHeld, direction,
         isLeveraged, margin, notional, entryNotional, equity, pnl, pnlPct, portfolioValue,
         color: COLORS[i % COLORS.length],
       }
@@ -710,7 +714,7 @@ export default function Portfolio({ onNavigateToChart }) {
                     {h.isLeveraged && (
                       <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Margin (actual $ in)</div><input className="pf-input" type="number" step="any" value={h.margin || ""} placeholder="Auto" onChange={e => updateHolding(h.id, "margin", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     )}
-                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Current Price (manual)</div><input className="pf-input" type="number" step="any" value={h.currentPrice || ""} placeholder="Auto for crypto" onChange={e => updateHolding(h.id, "currentPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Current Price (manual)</div><input className="pf-input" type="number" step="any" value={h.currentPrice || ""} placeholder="Auto" onChange={e => updateHolding(h.id, "currentPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                   </div>
                 )}
 
