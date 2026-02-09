@@ -58,7 +58,7 @@ const TVChart = memo(function TVChart({ symbol, interval = "60", showToolbar = t
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "optlab:multicharts"
 const DEFAULT_CHARTS = [
-  { id: 1, symbol: "BINANCE:BTCUSDT" },
+  { id: 1, symbol: "COINBASE:BTCUSD" },
 ]
 
 function loadCharts() {
@@ -70,9 +70,9 @@ function loadCharts() {
 
 // ─── PRESETS ─────────────────────────────────────────────────────────────────
 const QUICK_SYMBOLS = [
-  { label: "BTC", sym: "BINANCE:BTCUSDT" },
-  { label: "ETH", sym: "BINANCE:ETHUSDT" },
-  { label: "SOL", sym: "BINANCE:SOLUSDT" },
+  { label: "BTC", sym: "COINBASE:BTCUSD" },
+  { label: "ETH", sym: "COINBASE:ETHUSD" },
+  { label: "SOL", sym: "COINBASE:SOLUSD" },
   { label: "HYPE", sym: "COINBASE:HYPEUSD" },
   { label: "MSTR", sym: "NASDAQ:MSTR" },
   { label: "SMR", sym: "NYSE:SMR" },
@@ -102,6 +102,7 @@ export default function MultiChart() {
   const [nextId, setNextId] = useState(() => Math.max(0, ...charts.map(c => c.id)) + 1)
   const [editingId, setEditingId] = useState(null)
   const [editSymbol, setEditSymbol] = useState("")
+  const [customAdd, setCustomAdd] = useState("")
 
   // Persist
   useEffect(() => {
@@ -111,10 +112,24 @@ export default function MultiChart() {
     } catch {}
   }, [charts, cols])
 
-  const addChart = useCallback((symbol = "BINANCE:BTCUSDT") => {
+  const addChart = useCallback((symbol = "COINBASE:BTCUSD") => {
     setCharts(prev => [...prev, { id: nextId, symbol }])
     setNextId(p => p + 1)
   }, [nextId])
+
+  const handleCustomAdd = useCallback((e) => {
+    if (e.key === "Enter" && customAdd.trim()) {
+      const sym = customAdd.trim().toUpperCase()
+      // Auto-prefix: if no colon, guess exchange
+      let fullSym = sym
+      if (!sym.includes(":")) {
+        if (sym.endsWith("USD") || sym.endsWith("USDT")) fullSym = `COINBASE:${sym}`
+        else fullSym = `NASDAQ:${sym}` // assume equity
+      }
+      addChart(fullSym)
+      setCustomAdd("")
+    }
+  }, [customAdd, addChart])
 
   const removeChart = useCallback((id) => {
     setCharts(prev => prev.filter(c => c.id !== id))
@@ -175,7 +190,6 @@ export default function MultiChart() {
 
         {/* Quick add buttons */}
         <div style={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "nowrap", overflow: "auto" }}>
-          <span style={{ fontSize: 9, color: "#4a5060", marginRight: 4, whiteSpace: "nowrap" }}>Quick Add:</span>
           {QUICK_SYMBOLS.map(qs => (
             <button key={qs.sym} className="mc-btn" onClick={() => addChart(qs.sym)}
               style={{ padding: "2px 8px", fontSize: 9, whiteSpace: "nowrap" }}>
@@ -183,6 +197,14 @@ export default function MultiChart() {
             </button>
           ))}
         </div>
+
+        <div style={{ width: 1, height: 16, background: "#1e2330" }} />
+
+        {/* Custom symbol input */}
+        <input className="mc-input" type="text" placeholder="Add: AAPL, COINBASE:BTCUSD, etc."
+          value={customAdd} onChange={e => setCustomAdd(e.target.value)}
+          onKeyDown={handleCustomAdd}
+          style={{ width: 220, flexShrink: 0 }} />
 
         <div style={{ flex: 1 }} />
 
@@ -215,7 +237,7 @@ export default function MultiChart() {
                     onKeyDown={e => handleEditKeyDown(e, chart.id)}
                     onBlur={() => { setEditingId(null); setEditSymbol("") }}
                     style={{ width: 160, fontSize: 10 }}
-                    placeholder="BINANCE:BTCUSDT or NASDAQ:MSTR" />
+                    placeholder="COINBASE:BTCUSD or NASDAQ:MSTR" />
                 ) : (
                   <button onClick={() => startEdit(chart)}
                     style={{ padding: "1px 6px", fontSize: 9, fontFamily: "'JetBrains Mono', monospace",
@@ -245,7 +267,7 @@ export default function MultiChart() {
             background: "#0a0c10", border: "2px dashed #1e2330", borderRadius: 0,
             cursor: "pointer", minHeight: 200,
           }}
-            onClick={() => addChart("BINANCE:BTCUSDT")}
+            onClick={() => addChart("COINBASE:BTCUSD")}
           >
             <div style={{ fontSize: 32, color: "#1e2330", marginBottom: 8 }}>＋</div>
             <div style={{ fontSize: 11, color: "#3a4050", fontFamily: "'JetBrains Mono', monospace" }}>Add Chart</div>
