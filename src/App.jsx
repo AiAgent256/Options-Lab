@@ -4,6 +4,7 @@ import TradingViewChart from './components/TradingViewChart'
 import LiveTicker from './components/LiveTicker'
 import OptionsSimulator from './components/OptionsSimulator'
 import Portfolio from './components/Portfolio'
+import MultiChart from './components/MultiChart'
 
 // ─── LAYOUT MODES (for simulator view) ─────────────────────────────────────
 const LAYOUTS = {
@@ -26,19 +27,16 @@ const SYMBOLS = [
 ]
 
 export default function App() {
-  // ─── TOP-LEVEL STATE ────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState("simulator") // "simulator" | "portfolio"
+  const [activeTab, setActiveTab] = useState("charts")
   const [layout, setLayout] = useState("split")
   const [activeSymbol, setActiveSymbol] = useState(SYMBOLS[0])
   const [customSymbol, setCustomSymbol] = useState("")
   const [syncPrice, setSyncPrice] = useState(true)
   const [panelWidth, setPanelWidth] = useState(55)
 
-  // Binance WebSocket — only connects for crypto symbols
   const isCrypto = activeSymbol.type === "crypto"
   const binanceSymbol = isCrypto ? activeSymbol.id.toLowerCase() : null
   const { price, priceChange, volume24h, high24h, low24h, connected } = useBinanceWebSocket(binanceSymbol)
-
   const livePrice = isCrypto ? price : null
 
   const handleSymbolChange = useCallback((sym) => {
@@ -58,7 +56,6 @@ export default function App() {
     }
   }, [customSymbol])
 
-  // Navigate from Portfolio → Chart for a specific symbol
   const handleNavigateToChart = useCallback((tvSymbol) => {
     const parts = tvSymbol.split(":")
     setActiveSymbol({
@@ -74,25 +71,21 @@ export default function App() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#0a0c10", overflow: "hidden" }}>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
-           TOP BAR
-         ═══════════════════════════════════════════════════════════════════════ */}
+      {/* TOP BAR */}
       <div style={{
         height: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 16px", borderBottom: "1px solid #1a1d28", background: "#0d0f15", gap: 12, zIndex: 100,
       }}>
-        {/* Left: Logo + Primary Tabs + Symbol Picker */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 10px #3b82f680" }} />
             <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14, fontWeight: 700, color: "#e0e4ec", letterSpacing: "-0.3px" }}>OPTIONS LAB</span>
           </div>
           <div style={{ width: 1, height: 20, background: "#1e2330" }} />
 
-          {/* Primary tabs: Simulator / Portfolio */}
           <div style={{ display: "flex", gap: 2, background: "#0a0c10", borderRadius: 6, padding: 2 }}>
             {[
+              { id: "charts", label: "Charts", icon: "📊" },
               { id: "simulator", label: "Simulator", icon: "⚡" },
               { id: "portfolio", label: "Portfolio", icon: "◉" },
             ].map(tab => (
@@ -108,7 +101,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* Symbol picker — only visible in Simulator mode */}
           {activeTab === "simulator" && (
             <>
               <div style={{ width: 1, height: 16, background: "#1a1d2860" }} />
@@ -125,27 +117,19 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <input
-                type="text" placeholder="Custom (e.g. BINANCE:BTCUSDT)" value={customSymbol}
+              <input type="text" placeholder="Custom (e.g. BINANCE:BTCUSDT)" value={customSymbol}
                 onChange={e => setCustomSymbol(e.target.value)} onKeyDown={handleCustomSymbol}
-                style={{
-                  width: 180, padding: "4px 8px", fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
-                  background: "#12151c", border: "1px solid #1e2330", borderRadius: 4, color: "#c8ccd4", outline: "none",
-                }}
-              />
+                style={{ width: 180, padding: "4px 8px", fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+                  background: "#12151c", border: "1px solid #1e2330", borderRadius: 4, color: "#c8ccd4", outline: "none" }} />
             </>
           )}
         </div>
 
-        {/* Center: Live Ticker */}
         {isCrypto && price > 0 && activeTab === "simulator" && (
-          <LiveTicker
-            symbol={activeSymbol.label} price={price} change={priceChange}
-            high={high24h} low={low24h} volume={volume24h} connected={connected}
-          />
+          <LiveTicker symbol={activeSymbol.label} price={price} change={priceChange}
+            high={high24h} low={low24h} volume={volume24h} connected={connected} />
         )}
 
-        {/* Right: Layout + Sync controls (only in Simulator view) */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {activeTab === "simulator" && (
             <>
@@ -153,8 +137,7 @@ export default function App() {
                 <button onClick={() => setSyncPrice(!syncPrice)} style={{
                   padding: "4px 10px", fontSize: 9, fontFamily: "'JetBrains Mono', monospace", cursor: "pointer",
                   border: `1px solid ${syncPrice ? "#22c55e40" : "#1e2330"}`, borderRadius: 4,
-                  background: syncPrice ? "#22c55e15" : "transparent",
-                  color: syncPrice ? "#22c55e" : "#4a5060",
+                  background: syncPrice ? "#22c55e15" : "transparent", color: syncPrice ? "#22c55e" : "#4a5060",
                 }}>
                   {syncPrice ? "● LIVE SYNC" : "○ MANUAL"}
                 </button>
@@ -163,8 +146,7 @@ export default function App() {
                 {Object.entries(LAYOUTS).map(([key, l]) => (
                   <button key={key} onClick={() => setLayout(key)} title={l.label} style={{
                     padding: "4px 8px", fontSize: 12, cursor: "pointer", border: "none", borderRadius: 3,
-                    background: layout === key ? "#3b82f620" : "transparent",
-                    color: layout === key ? "#3b82f6" : "#3a4050",
+                    background: layout === key ? "#3b82f620" : "transparent", color: layout === key ? "#3b82f6" : "#3a4050",
                   }}>
                     {l.icon}
                   </button>
@@ -175,45 +157,36 @@ export default function App() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
-           MAIN CONTENT
-         ═══════════════════════════════════════════════════════════════════════ */}
+      {/* MAIN CONTENT */}
 
-      {/* ─── PORTFOLIO TAB ─── */}
+      {activeTab === "charts" && (
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          <MultiChart />
+        </div>
+      )}
+
       {activeTab === "portfolio" && (
         <div style={{ flex: 1, overflow: "auto" }}>
           <Portfolio onNavigateToChart={handleNavigateToChart} />
         </div>
       )}
 
-      {/* ─── SIMULATOR TAB ─── */}
       {activeTab === "simulator" && (
         <>
           {layout === "split" ? (
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
               <div style={{ width: `${panelWidth}%`, height: "100%", borderRight: "1px solid #1a1d28", position: "relative" }}>
                 <TradingViewChart symbol={activeSymbol.tvSymbol} />
-                <div
-                  style={{
-                    position: "absolute", right: -3, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 10,
-                    background: "transparent",
-                  }}
+                <div style={{ position: "absolute", right: -3, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 10, background: "transparent" }}
                   onMouseDown={(e) => {
                     e.preventDefault()
-                    const startX = e.clientX
-                    const startW = panelWidth 
-                    const onMove = (ev) => {
-                      const delta = ev.clientX - startX
-                      const newW = startW + (delta / window.innerWidth) * 100
-                      setPanelWidth(Math.max(20, Math.min(80, newW)))
-                    }
+                    const startX = e.clientX; const startW = panelWidth
+                    const onMove = (ev) => { const delta = ev.clientX - startX; const newW = startW + (delta / window.innerWidth) * 100; setPanelWidth(Math.max(20, Math.min(80, newW))) }
                     const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp) }
-                    document.addEventListener("mousemove", onMove)
-                    document.addEventListener("mouseup", onUp)
+                    document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp)
                   }}
                   onMouseEnter={e => e.target.style.background = "#3b82f640"}
-                  onMouseLeave={e => e.target.style.background = "transparent"}
-                />
+                  onMouseLeave={e => e.target.style.background = "transparent"} />
               </div>
               <div style={{ flex: 1, height: "100%", overflow: "auto" }}>
                 <OptionsSimulator livePrice={syncPrice ? livePrice : null} livePriceSymbol={syncPrice ? activeSymbol.label : null} />
