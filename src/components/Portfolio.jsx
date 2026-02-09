@@ -62,6 +62,56 @@ const TvMiniChart = memo(({ symbol, width = "100%", height = 160 }) => {
   return <div ref={ref} style={{ width, height, overflow: "hidden" }} />
 })
 
+// ─── CLOSE POSITION FORM ──────────────────────────────────────────────────
+function ClosePositionForm({ holding, onClose, onCancel }) {
+  const [exitPrice, setExitPrice] = useState(holding.currentPrice || "")
+  const [exitDate, setExitDate] = useState(new Date().toISOString().split("T")[0])
+
+  const previewPnl = (() => {
+    const ep = parseFloat(exitPrice) || 0
+    if (ep <= 0) return null
+    if (holding.isLeveraged) {
+      return (ep - holding.costBasis) * holding.quantity * (holding.direction || 1)
+    } else {
+      return (ep - holding.costBasis) * holding.quantity
+    }
+  })()
+
+  return (
+    <div style={{ margin: "0 0 10px", padding: "10px 12px", background: "#0a0c10", borderRadius: 6, borderLeft: "3px solid #f59e0b" }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#f59e0b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "1px" }}>Close Position</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Exit Price</div>
+          <input className="pf-input" type="number" step="any" value={exitPrice}
+            onChange={e => setExitPrice(e.target.value)} style={{ fontSize: 11, padding: "4px 6px" }}
+            placeholder={`Current: ${holding.currentPrice?.toFixed(2) || "?"}`} />
+        </div>
+        <div>
+          <div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Exit Date</div>
+          <input className="pf-input" type="date" value={exitDate}
+            onChange={e => setExitDate(e.target.value)} style={{ fontSize: 11, padding: "4px 6px" }} />
+        </div>
+      </div>
+      {previewPnl !== null && (
+        <div style={{ marginTop: 6, fontSize: 10, color: "#5a6070" }}>
+          Realized P&L: <span style={{ fontWeight: 600, color: previewPnl >= 0 ? "#22c55e" : "#ef4444" }}>
+            {previewPnl >= 0 ? "+" : ""}{previewPnl.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+          </span>
+          {holding.margin > 0 && <span> ({((previewPnl / holding.margin) * 100).toFixed(1)}%)</span>}
+        </div>
+      )}
+      <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+        <button className="pf-btn" style={{ padding: "4px 12px", fontSize: 10, background: "#f59e0b20", borderColor: "#f59e0b40", color: "#f59e0b" }}
+          onClick={() => onClose(holding.id, exitPrice, exitDate)}>
+          Confirm Close
+        </button>
+        <button className="pf-btn" style={{ padding: "4px 12px", fontSize: 10 }} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── PORTFOLIO COMPONENT ─────────────────────────────────────────────────────
 export default function Portfolio({ onNavigateToChart }) {
   const [holdings, setHoldings] = useState(() => {
@@ -80,11 +130,13 @@ export default function Portfolio({ onNavigateToChart }) {
   const [customFrom, setCustomFrom] = useState("")
   const [customTo, setCustomTo] = useState(new Date().toISOString().split("T")[0])
   const [showAddForm, setShowAddForm] = useState(false)
+  const [closingId, setClosingId] = useState(null) // ID of position being closed
 
   // New holding form state
   const [newHolding, setNewHolding] = useState({
     symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0,
     leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "",
+    status: "open", exitPrice: 0, exitDate: "",
   })
 
   // Persist holdings
@@ -156,8 +208,13 @@ export default function Portfolio({ onNavigateToChart }) {
       const tracked = isTrackedSymbol(h.symbol, h.type)
       const assetKey = tracked ? normalizeSymbol(h.symbol) : null
       const live = assetKey ? liveData[assetKey] : null
-      const currentPrice = live ? live.price : (h.currentPrice || h.costBasis)
-      const change24h = live ? live.change : 0
+      const isClosed = h.status === "closed"
+
+      // For closed positions, use the exit price; for open, use live price
+      const currentPrice = isClosed
+        ? (h.exitPrice || h.costBasis)
+        : (live ? live.price : (h.currentPrice || h.costBasis))
+      const change24h = isClosed ? 0 : (live ? live.change : 0)
 
       const isLeveraged = (h.type === "crypto_perp" || h.type === "option_long" || h.type === "option_short") && (h.leverage || 1) > 1
       const direction = h.type === "option_short" ? -1 : 1 // short = inverse P&L
@@ -190,9 +247,10 @@ export default function Portfolio({ onNavigateToChart }) {
         portfolioValue = equity
       }
 
-      // Days held
+      // Days held — for closed positions, count entry to exit
       const tradeDate = new Date(h.tradeDate)
-      const daysHeld = Math.max(0, Math.round((Date.now() - tradeDate.getTime()) / 86400000))
+      const endDate = isClosed && h.exitDate ? new Date(h.exitDate) : new Date()
+      const daysHeld = Math.max(0, Math.round((endDate.getTime() - tradeDate.getTime()) / 86400000))
 
       // TradingView symbol — match the exchange we're actually getting data from
       let tvSymbol
@@ -208,7 +266,7 @@ export default function Portfolio({ onNavigateToChart }) {
 
       return {
         ...h, currentPrice, change24h, cryptoKey: assetKey, tvSymbol, daysHeld, direction,
-        isLeveraged, margin, notional, entryNotional, equity, pnl, pnlPct, portfolioValue,
+        isLeveraged, isClosed, margin, notional, entryNotional, equity, pnl, pnlPct, portfolioValue,
         color: COLORS[i % COLORS.length],
       }
     })
@@ -216,24 +274,30 @@ export default function Portfolio({ onNavigateToChart }) {
 
   // ─── PORTFOLIO AGGREGATES ───────────────────────────────────────────────
   const portfolio = useMemo(() => {
-    const totalMargin = enrichedHoldings.reduce((s, h) => s + h.margin, 0)
-    const totalEquity = enrichedHoldings.reduce((s, h) => s + h.portfolioValue, 0)
-    const totalPnl = enrichedHoldings.reduce((s, h) => s + h.pnl, 0)
-    const totalPnlPct = totalMargin > 0 ? totalPnl / totalMargin : 0
-    const totalNotional = enrichedHoldings.reduce((s, h) => s + h.notional, 0)
+    const openHoldings = enrichedHoldings.filter(h => !h.isClosed)
+    const closedHoldings = enrichedHoldings.filter(h => h.isClosed)
 
-    // Allocation based on portfolio value (equity), not notional
-    const allocation = enrichedHoldings.map(h => ({
+    const totalMargin = openHoldings.reduce((s, h) => s + h.margin, 0)
+    const totalEquity = openHoldings.reduce((s, h) => s + h.portfolioValue, 0)
+    const unrealizedPnl = openHoldings.reduce((s, h) => s + h.pnl, 0)
+    const realizedPnl = closedHoldings.reduce((s, h) => s + h.pnl, 0)
+    const totalPnl = unrealizedPnl + realizedPnl
+    const totalCost = totalMargin + closedHoldings.reduce((s, h) => s + h.margin, 0)
+    const totalPnlPct = totalCost > 0 ? totalPnl / totalCost : 0
+    const totalNotional = openHoldings.reduce((s, h) => s + h.notional, 0)
+
+    // Allocation based on portfolio value (equity), not notional — open positions only
+    const allocation = openHoldings.map(h => ({
       name: h.symbol, value: Math.max(0, h.portfolioValue), color: h.color,
       pct: totalEquity > 0 ? Math.max(0, h.portfolioValue) / totalEquity : 0,
     }))
 
-    // Best / worst performers by P&L%
+    // Best / worst performers by P&L% — all positions
     const sorted = [...enrichedHoldings].sort((a, b) => b.pnlPct - a.pnlPct)
     const best = sorted[0]
     const worst = sorted[sorted.length - 1]
 
-    return { totalMargin, totalEquity, totalPnl, totalPnlPct, totalNotional, allocation, best, worst }
+    return { totalMargin, totalEquity, unrealizedPnl, realizedPnl, totalPnl, totalPnlPct, totalNotional, allocation, best, worst, openCount: openHoldings.length, closedCount: closedHoldings.length }
   }, [enrichedHoldings])
 
   // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
@@ -272,6 +336,15 @@ export default function Portfolio({ onNavigateToChart }) {
       enrichedHoldings.forEach(h => {
         // String comparison works for YYYY-MM-DD format
         if (date < h.tradeDate) return
+
+        // For closed positions, stop contributing after exit date
+        if (h.isClosed && h.exitDate && date > h.exitDate + "T23") {
+          // After close: add realized P&L to equity running total
+          totalEquity += h.margin + h.pnl
+          totalMargin += h.margin
+          active++
+          return
+        }
 
         const klines = historicalData[h.cryptoKey]
         if (!klines || klines.length === 0) {
@@ -312,8 +385,9 @@ export default function Portfolio({ onNavigateToChart }) {
   const holdingChartData = useCallback((holding) => {
     const klines = historicalData[holding.cryptoKey]
     if (!klines || klines.length === 0) return []
+    const exitKey = holding.isClosed && holding.exitDate ? holding.exitDate + "T23" : null
     return klines
-      .filter(k => k.date >= holding.tradeDate)
+      .filter(k => k.date >= holding.tradeDate && (!exitKey || k.date <= exitKey))
       .map(k => {
         let equity, pnl
         if (holding.isLeveraged) {
@@ -336,9 +410,12 @@ export default function Portfolio({ onNavigateToChart }) {
   // ─── CRUD ───────────────────────────────────────────────────────────────
   const addHolding = () => {
     if (!newHolding.symbol.trim()) return
-    setHoldings(prev => [...prev, { ...newHolding, id: nextId, currentPrice: 0, symbol: newHolding.symbol.toUpperCase() }])
+    const h = { ...newHolding, id: nextId, currentPrice: 0, symbol: newHolding.symbol.toUpperCase() }
+    // Default status for new holdings
+    if (!h.status) h.status = "open"
+    setHoldings(prev => [...prev, h])
     setNextId(p => p + 1)
-    setNewHolding({ symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0, leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "" })
+    setNewHolding({ symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0, leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "", status: "open", exitPrice: 0, exitDate: "" })
     setShowAddForm(false)
   }
 
@@ -346,6 +423,19 @@ export default function Portfolio({ onNavigateToChart }) {
 
   const updateHolding = (id, field, value) => {
     setHoldings(prev => prev.map(h => h.id === id ? { ...h, [field]: value } : h))
+  }
+
+  const closeHolding = (id, exitPrice, exitDate) => {
+    setHoldings(prev => prev.map(h =>
+      h.id === id ? { ...h, status: "closed", exitPrice: parseFloat(exitPrice) || 0, exitDate: exitDate || new Date().toISOString().split("T")[0] } : h
+    ))
+    setClosingId(null)
+  }
+
+  const reopenHolding = (id) => {
+    setHoldings(prev => prev.map(h =>
+      h.id === id ? { ...h, status: "open", exitPrice: 0, exitDate: "" } : h
+    ))
   }
 
   // ─── RENDER ─────────────────────────────────────────────────────────────
@@ -393,7 +483,7 @@ export default function Portfolio({ onNavigateToChart }) {
             {portfolio.totalNotional !== portfolio.totalEquity && (
               <span style={{ color: "#3a4050" }}>Notional: {fmtDollar(portfolio.totalNotional)}</span>
             )}
-            <span style={{ color: "#4a5060" }}>{enrichedHoldings.length} positions</span>
+            <span style={{ color: "#4a5060" }}>{portfolio.openCount} open{portfolio.closedCount > 0 ? ` · ${portfolio.closedCount} closed` : ""}</span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -505,6 +595,29 @@ export default function Portfolio({ onNavigateToChart }) {
                 onChange={e => setNewHolding(p => ({ ...p, notes: e.target.value }))} />
             </div>
           </div>
+          {/* Already Closed toggle */}
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8890a0", cursor: "pointer" }}>
+              <input type="checkbox" checked={newHolding.status === "closed"}
+                onChange={e => setNewHolding(p => ({ ...p, status: e.target.checked ? "closed" : "open" }))}
+                style={{ accentColor: "#f59e0b" }} />
+              Already Closed (historical trade)
+            </label>
+          </div>
+          {newHolding.status === "closed" && (
+            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "10px 12px", background: "#0a0c10", borderRadius: 6, borderLeft: "3px solid #f59e0b" }}>
+              <div>
+                <div className="pf-label">Exit Price</div>
+                <input className="pf-input" type="number" step="any" placeholder="Exit price per unit" value={newHolding.exitPrice || ""}
+                  onChange={e => setNewHolding(p => ({ ...p, exitPrice: parseFloat(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <div className="pf-label">Exit Date</div>
+                <input className="pf-input" type="date" value={newHolding.exitDate}
+                  onChange={e => setNewHolding(p => ({ ...p, exitDate: e.target.value }))} />
+              </div>
+            </div>
+          )}
           {/* Show computed values preview */}
           {newHolding.quantity > 0 && newHolding.costBasis > 0 && newHolding.type === "crypto_perp" && (
             <div style={{ marginTop: 10, padding: "8px 12px", background: "#0a0c10", borderRadius: 6, display: "flex", gap: 20, fontSize: 10, color: "#5a6070" }}>
@@ -520,21 +633,29 @@ export default function Portfolio({ onNavigateToChart }) {
       )}
 
       {/* ─── SUMMARY METRICS ─── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
         <div className="pf-metric">
-          <div className="pf-label">Total Margin / Cost</div>
+          <div className="pf-label">Open Margin / Cost</div>
           <div className="pf-value">{fmtDollar(portfolio.totalMargin)}</div>
         </div>
         <div className="pf-metric">
           <div className="pf-label">Portfolio Equity</div>
-          <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</div>
+          <div className="pf-value" style={{ color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</div>
         </div>
         <div className="pf-metric">
           <div className="pf-label">Unrealized P&L</div>
+          <div className="pf-value" style={{ color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.unrealizedPnl)}</div>
+        </div>
+        <div className="pf-metric">
+          <div className="pf-label">Realized P&L</div>
+          <div className="pf-value" style={{ color: portfolio.realizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.realizedPnl)}</div>
+        </div>
+        <div className="pf-metric">
+          <div className="pf-label">Total P&L</div>
           <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.totalPnl)}</div>
         </div>
         <div className="pf-metric">
-          <div className="pf-label">Return on Margin</div>
+          <div className="pf-label">Return on Capital</div>
           <div className="pf-value" style={{ color: portfolio.totalPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalPnlPct)}</div>
         </div>
         {portfolio.best && (
@@ -666,16 +787,16 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* ─── HOLDINGS: CARD VIEW ─── */}
       {viewMode === "cards" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, marginBottom: 20 }}>
-          {enrichedHoldings.map(h => {
+          {[...enrichedHoldings].sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)).map(h => {
             const chartData = holdingChartData(h)
             const isEditing = editingId === h.id
             return (
-              <div key={h.id} className="pf-card" style={{ borderLeft: `3px solid ${h.color}`, padding: 16 }}>
+              <div key={h.id} className="pf-card" style={{ borderLeft: `3px solid ${h.isClosed ? "#4a5060" : h.color}`, padding: 16, opacity: h.isClosed ? 0.7 : 1 }}>
                 {/* Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 16, fontWeight: 700, color: "#e0e4ec" }}>{h.symbol}</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: h.isClosed ? "#6a7080" : "#e0e4ec" }}>{h.symbol}</span>
                       {h.name && <span style={{ fontSize: 11, color: "#4a5060" }}>{h.name}</span>}
                       <span style={{ fontSize: 8, padding: "1px 6px", borderRadius: 3, background: h.type.includes("crypto") ? "#f59e0b15" : "#3b82f615", color: h.type.includes("crypto") ? "#f59e0b" : "#3b82f6" }}>
                         {ASSET_TYPES.find(t => t.value === h.type)?.label || h.type}
@@ -685,9 +806,14 @@ export default function Portfolio({ onNavigateToChart }) {
                           {h.leverage}×
                         </span>
                       )}
+                      {h.isClosed && (
+                        <span style={{ fontSize: 8, padding: "1px 6px", borderRadius: 3, background: "#4a506020", color: "#6a7080", fontWeight: 600, letterSpacing: "0.5px" }}>
+                          CLOSED
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 10, color: "#3a4050", marginTop: 2 }}>
-                      Opened {h.tradeDate} · {h.daysHeld}d held
+                      {h.isClosed ? `${h.tradeDate} → ${h.exitDate || "?"}` : `Opened ${h.tradeDate}`} · {h.daysHeld}d held
                       {h.notes && <span> · {h.notes}</span>}
                     </div>
                   </div>
@@ -697,12 +823,29 @@ export default function Portfolio({ onNavigateToChart }) {
                         📈
                       </button>
                     )}
+                    {!h.isClosed && (
+                      <button className="pf-btn" style={{ padding: "3px 8px", fontSize: 9, color: "#f59e0b", borderColor: "#f59e0b40" }}
+                        onClick={() => setClosingId(closingId === h.id ? null : h.id)} title="Close position">
+                        {closingId === h.id ? "Cancel" : "Close"}
+                      </button>
+                    )}
+                    {h.isClosed && (
+                      <button className="pf-btn" style={{ padding: "3px 8px", fontSize: 9, color: "#22c55e", borderColor: "#22c55e40" }}
+                        onClick={() => reopenHolding(h.id)} title="Reopen position">
+                        Reopen
+                      </button>
+                    )}
                     <button className="pf-btn" style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => setEditingId(isEditing ? null : h.id)}>
                       {isEditing ? "Done" : "Edit"}
                     </button>
                     <button className="pf-btn pf-btn-danger" style={{ padding: "3px 8px", fontSize: 9 }} onClick={() => removeHolding(h.id)}>×</button>
                   </div>
                 </div>
+
+                {/* Close Position Form */}
+                {closingId === h.id && (
+                  <ClosePositionForm holding={h} onClose={closeHolding} onCancel={() => setClosingId(null)} />
+                )}
 
                 {/* Inline edit */}
                 {isEditing && (
@@ -715,15 +858,21 @@ export default function Portfolio({ onNavigateToChart }) {
                       <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Margin (actual $ in)</div><input className="pf-input" type="number" step="any" value={h.margin || ""} placeholder="Auto" onChange={e => updateHolding(h.id, "margin", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     )}
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Current Price (manual)</div><input className="pf-input" type="number" step="any" value={h.currentPrice || ""} placeholder="Auto" onChange={e => updateHolding(h.id, "currentPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    {h.isClosed && (
+                      <>
+                        <div><div style={{ fontSize: 8, color: "#f59e0b", marginBottom: 2 }}>Exit Price</div><input className="pf-input" type="number" step="any" value={h.exitPrice || ""} onChange={e => updateHolding(h.id, "exitPrice", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px", borderColor: "#f59e0b40" }} /></div>
+                        <div><div style={{ fontSize: 8, color: "#f59e0b", marginBottom: 2 }}>Exit Date</div><input className="pf-input" type="date" value={h.exitDate || ""} onChange={e => updateHolding(h.id, "exitDate", e.target.value)} style={{ fontSize: 11, padding: "4px 6px", borderColor: "#f59e0b40" }} /></div>
+                      </>
+                    )}
                   </div>
                 )}
 
                 {/* Metrics */}
                 <div style={{ display: "grid", gridTemplateColumns: h.isLeveraged ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
                   <div>
-                    <div style={{ fontSize: 8, color: "#4a5060" }}>Current Price</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#e0e4ec" }}>{fmtDollar(h.currentPrice)}</div>
-                    {h.change24h !== 0 && <div style={{ fontSize: 9, color: h.change24h >= 0 ? "#22c55e" : "#ef4444" }}>{h.change24h >= 0 ? "▲" : "▼"} {Math.abs(h.change24h).toFixed(2)}% 24h</div>}
+                    <div style={{ fontSize: 8, color: "#4a5060" }}>{h.isClosed ? "Exit Price" : "Current Price"}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: h.isClosed ? "#6a7080" : "#e0e4ec" }}>{fmtDollar(h.currentPrice)}</div>
+                    {!h.isClosed && h.change24h !== 0 && <div style={{ fontSize: 9, color: h.change24h >= 0 ? "#22c55e" : "#ef4444" }}>{h.change24h >= 0 ? "▲" : "▼"} {Math.abs(h.change24h).toFixed(2)}% 24h</div>}
                   </div>
                   {h.isLeveraged ? (
                     <>
@@ -746,7 +895,7 @@ export default function Portfolio({ onNavigateToChart }) {
                     </div>
                   )}
                   <div>
-                    <div style={{ fontSize: 8, color: "#4a5060" }}>P&L</div>
+                    <div style={{ fontSize: 8, color: "#4a5060" }}>{h.isClosed ? "Realized P&L" : "P&L"}</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: h.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(h.pnl)}</div>
                     <div style={{ fontSize: 9, color: h.pnlPct >= 0 ? "#22c55e80" : "#ef444480" }}>{fmtPct(h.pnlPct)}</div>
                   </div>
@@ -781,7 +930,7 @@ export default function Portfolio({ onNavigateToChart }) {
 
                 {/* Cost basis line label */}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#3a4050", marginTop: 4 }}>
-                  <span>Entry: {fmtDollar(h.costBasis)}</span>
+                  <span>Entry: {fmtDollar(h.costBasis)}{h.isClosed ? ` → Exit: ${fmtDollar(h.exitPrice)}` : ""}</span>
                   {h.isLeveraged ? (
                     <span>Margin: {fmtDollar(h.margin)} · Notional: {fmtDollar(h.notional)}</span>
                   ) : (
@@ -802,25 +951,24 @@ export default function Portfolio({ onNavigateToChart }) {
               <thead><tr>
                 <th style={{ textAlign: "left" }}>Asset</th>
                 <th>Type</th>
+                <th>Status</th>
                 <th>Qty</th>
                 <th>Entry Price</th>
                 <th>Margin / Cost</th>
-                <th>Current Price</th>
+                <th>Current / Exit</th>
                 <th>24h</th>
                 <th>Equity</th>
-                <th>Notional</th>
                 <th>P&L ($)</th>
                 <th>P&L (%)</th>
                 <th>Days</th>
-                <th>Alloc</th>
                 <th></th>
               </tr></thead>
               <tbody>
-                {enrichedHoldings.map(h => (
-                  <tr key={h.id}>
+                {[...enrichedHoldings].sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)).map(h => (
+                  <tr key={h.id} style={{ opacity: h.isClosed ? 0.6 : 1 }}>
                     <td style={{ textAlign: "left" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 2, background: h.color }} />
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: h.isClosed ? "#4a5060" : h.color }} />
                         <span style={{ fontWeight: 600, color: "#e0e4ec" }}>{h.symbol}</span>
                         {h.name && <span style={{ color: "#4a5060", fontSize: 10 }}>{h.name}</span>}
                       </div>
@@ -828,21 +976,24 @@ export default function Portfolio({ onNavigateToChart }) {
                     <td style={{ fontSize: 10 }}>
                       {h.type === "crypto_perp" ? <span>{h.leverage}× {h.direction === 1 ? "L" : "S"}</span> : h.type.includes("crypto") ? "Spot" : h.type.includes("option") ? "Option" : "Equity"}
                     </td>
+                    <td style={{ fontSize: 10, color: h.isClosed ? "#f59e0b" : "#22c55e" }}>
+                      {h.isClosed ? "Closed" : "Open"}
+                    </td>
                     <td>{h.quantity.toLocaleString()}</td>
                     <td>{fmtDollar(h.costBasis)}</td>
                     <td>{fmtDollar(h.margin)}</td>
                     <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentPrice)}</td>
                     <td style={{ color: h.change24h >= 0 ? "#22c55e" : "#ef4444", fontSize: 10 }}>
-                      {h.change24h !== 0 ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}
+                      {!h.isClosed && h.change24h !== 0 ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}
                     </td>
                     <td style={{ fontWeight: 600, color: h.equity >= h.margin ? "#22c55e" : "#ef4444" }}>{fmtDollar(h.equity)}</td>
-                    <td style={{ color: "#4a5060" }}>{h.isLeveraged ? fmtDollar(h.notional) : "—"}</td>
                     <td style={{ color: h.pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(h.pnl)}</td>
                     <td style={{ color: h.pnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(h.pnlPct)}</td>
                     <td>{h.daysHeld}d</td>
-                    <td>{portfolio.totalEquity > 0 ? `${(Math.max(0, h.portfolioValue) / portfolio.totalEquity * 100).toFixed(1)}%` : "—"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        {!h.isClosed && <button className="pf-btn" style={{ padding: "2px 6px", fontSize: 9, color: "#f59e0b" }} onClick={() => setClosingId(h.id)}>Close</button>}
+                        {h.isClosed && <button className="pf-btn" style={{ padding: "2px 6px", fontSize: 9, color: "#22c55e" }} onClick={() => reopenHolding(h.id)}>Reopen</button>}
                         {onNavigateToChart && <button className="pf-btn" style={{ padding: "2px 6px", fontSize: 9 }} onClick={() => onNavigateToChart(h.tvSymbol)}>📈</button>}
                         <button className="pf-btn pf-btn-danger" style={{ padding: "2px 6px", fontSize: 9 }} onClick={() => removeHolding(h.id)}>×</button>
                       </div>
@@ -852,14 +1003,13 @@ export default function Portfolio({ onNavigateToChart }) {
               </tbody>
               <tfoot>
                 <tr style={{ borderTop: "2px solid #1e2330" }}>
-                  <td style={{ textAlign: "left", fontWeight: 700, color: "#e0e4ec" }} colSpan={4}>Total</td>
+                  <td style={{ textAlign: "left", fontWeight: 700, color: "#e0e4ec" }} colSpan={5}>Total</td>
                   <td style={{ fontWeight: 600 }}>{fmtDollar(portfolio.totalMargin)}</td>
                   <td colSpan={2}></td>
                   <td style={{ fontWeight: 700, color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</td>
-                  <td style={{ color: "#4a5060" }}>{fmtDollar(portfolio.totalNotional)}</td>
                   <td style={{ fontWeight: 700, color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.totalPnl)}</td>
                   <td style={{ fontWeight: 600, color: portfolio.totalPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalPnlPct)}</td>
-                  <td colSpan={3}></td>
+                  <td colSpan={2}></td>
                 </tr>
               </tfoot>
             </table>
