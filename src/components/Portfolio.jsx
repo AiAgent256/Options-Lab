@@ -1116,6 +1116,173 @@ export default function Portfolio({ onNavigateToChart }) {
             </div>
           </div>
         </div>
+
+      {/* ─── POSITION TIMELINE ─── */}
+      {enrichedHoldings.length > 0 && (() => {
+        // Build all positions sorted by entry date
+        const allPositions = [...enrichedHoldings].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate))
+        
+        // Find date range
+        const allDates = []
+        allPositions.forEach(h => {
+          if (h.tradeDate) allDates.push(h.tradeDate)
+          if (h.exitDate) allDates.push(h.exitDate)
+        })
+        if (allDates.length === 0) return null
+        allDates.sort()
+        const minDate = allDates[0]
+        const today = new Date().toISOString().slice(0, 10)
+        const maxDate = allDates[allDates.length - 1] > today ? allDates[allDates.length - 1] : today
+        
+        // Generate day-by-day list
+        const days = []
+        let d = new Date(minDate)
+        const end = new Date(maxDate)
+        while (d <= end) {
+          days.push(d.toISOString().slice(0, 10))
+          d.setDate(d.getDate() + 1)
+        }
+
+        // Compute daily deployed capital
+        const dailyCapital = days.map(day => {
+          let deployed = 0
+          let count = 0
+          enrichedHoldings.forEach(h => {
+            if (day < h.tradeDate) return
+            if (h.isClosed && h.exitDate && day > h.exitDate) return
+            deployed += h.margin
+            count++
+          })
+          return { day, deployed, count }
+        })
+
+        // Find peak overlap
+        const peakDay = dailyCapital.reduce((best, d) => d.deployed > best.deployed ? d : best, { deployed: 0 })
+
+        return (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <span>Position Timeline</span>
+              <span style={{ fontSize: 9, color: "#4a5060" }}>
+                Peak deployed: {fmtDollar(peakDay.deployed)} ({peakDay.count} positions on {peakDay.day})
+              </span>
+            </div>
+            <div className="pf-card" style={{ borderTop: "2px solid #3b82f640" }}>
+              <div style={{ overflowX: "auto" }}>
+                {/* Gantt-style timeline */}
+                <div style={{ minWidth: 600 }}>
+                  {/* Date header */}
+                  <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ width: 120, flexShrink: 0, fontSize: 9, color: "#4a5060", fontWeight: 600 }}>Position</div>
+                    <div style={{ width: 70, flexShrink: 0, fontSize: 9, color: "#4a5060", textAlign: "right", paddingRight: 8 }}>Cost</div>
+                    <div style={{ flex: 1, display: "flex", position: "relative" }}>
+                      {days.map((day, i) => (
+                        <div key={day} style={{
+                          flex: 1, fontSize: 7, color: "#3a4050", textAlign: "center",
+                          borderLeft: "1px solid #1e233040",
+                          display: i % Math.max(1, Math.floor(days.length / 12)) === 0 ? "block" : "none",
+                        }}>
+                          {day.slice(5)}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ width: 80, flexShrink: 0, fontSize: 9, color: "#4a5060", textAlign: "right" }}>Status</div>
+                  </div>
+
+                  {/* Position bars */}
+                  {allPositions.map(h => {
+                    const startIdx = Math.max(0, days.indexOf(h.tradeDate))
+                    const endDay = h.isClosed && h.exitDate ? h.exitDate : today
+                    let endIdx = days.indexOf(endDay)
+                    if (endIdx < 0) endIdx = days.length - 1
+                    const barLeft = days.length > 0 ? (startIdx / days.length) * 100 : 0
+                    const barWidth = days.length > 0 ? (Math.max(1, endIdx - startIdx + 1) / days.length) * 100 : 0
+                    const barColor = h.isClosed ? (h.pnl >= 0 ? "#22c55e" : "#ef4444") : h.color
+
+                    return (
+                      <div key={h.id} style={{ display: "flex", alignItems: "center", marginBottom: 3 }}>
+                        <div style={{ width: 120, flexShrink: 0, fontSize: 10, color: h.isClosed ? "#6a7080" : "#e0e4ec", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {h.symbol}
+                          {h.isLeveraged && <span style={{ fontSize: 8, color: "#f59e0b", marginLeft: 4 }}>{h.leverage}×</span>}
+                        </div>
+                        <div style={{ width: 70, flexShrink: 0, fontSize: 9, color: "#6a7080", textAlign: "right", paddingRight: 8 }}>
+                          {fmtDollar(h.margin)}
+                        </div>
+                        <div style={{ flex: 1, position: "relative", height: 18, background: "#0a0c10", borderRadius: 2, overflow: "hidden" }}>
+                          {/* Background grid lines */}
+                          {days.map((day, i) => (
+                            <div key={day} style={{
+                              position: "absolute", left: `${(i / days.length) * 100}%`, top: 0, bottom: 0,
+                              width: 1, background: "#1e233030",
+                            }} />
+                          ))}
+                          {/* Active bar */}
+                          <div style={{
+                            position: "absolute",
+                            left: `${barLeft}%`,
+                            width: `${barWidth}%`,
+                            top: 2, bottom: 2,
+                            background: `${barColor}30`,
+                            border: `1px solid ${barColor}60`,
+                            borderRadius: 2,
+                          }}>
+                            <div style={{ fontSize: 7, color: barColor, padding: "0 3px", lineHeight: "12px", whiteSpace: "nowrap", overflow: "hidden" }}>
+                              {h.tradeDate.slice(5)} → {h.isClosed ? h.exitDate?.slice(5) : "now"}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ width: 80, flexShrink: 0, textAlign: "right" }}>
+                          {h.isClosed ? (
+                            <span style={{ fontSize: 9, color: h.pnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(h.pnl)}</span>
+                          ) : (
+                            <span style={{ fontSize: 9, color: "#3b82f6" }}>Open</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Daily deployed capital row */}
+                  <div style={{ display: "flex", alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid #1e2330" }}>
+                    <div style={{ width: 120, flexShrink: 0, fontSize: 9, color: "#f59e0b", fontWeight: 600 }}>Deployed $</div>
+                    <div style={{ width: 70, flexShrink: 0 }} />
+                    <div style={{ flex: 1, display: "flex", position: "relative", height: 32 }}>
+                      {dailyCapital.map((dc, i) => {
+                        const barH = peakDay.deployed > 0 ? (dc.deployed / peakDay.deployed) * 100 : 0
+                        return (
+                          <div key={dc.day} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", position: "relative" }}>
+                            <div style={{
+                              width: "80%", height: `${barH}%`, minHeight: dc.deployed > 0 ? 2 : 0,
+                              background: dc.count > 4 ? "#ef444460" : dc.count > 3 ? "#f59e0b40" : "#3b82f630",
+                              borderRadius: "1px 1px 0 0",
+                            }} title={`${dc.day}: ${fmtDollar(dc.deployed)} (${dc.count} positions)`} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div style={{ width: 80, flexShrink: 0 }} />
+                  </div>
+
+                  {/* Count row */}
+                  <div style={{ display: "flex", alignItems: "center", marginTop: 2 }}>
+                    <div style={{ width: 120, flexShrink: 0, fontSize: 9, color: "#4a5060" }}># Positions</div>
+                    <div style={{ width: 70, flexShrink: 0 }} />
+                    <div style={{ flex: 1, display: "flex" }}>
+                      {dailyCapital.map((dc) => (
+                        <div key={dc.day} style={{ flex: 1, textAlign: "center", fontSize: 7, color: dc.count > 4 ? "#ef4444" : dc.count > 3 ? "#f59e0b" : "#4a5060" }}>
+                          {dc.count > 0 ? dc.count : ""}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ width: 80, flexShrink: 0 }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
+
