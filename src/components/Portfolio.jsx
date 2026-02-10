@@ -1285,4 +1285,3 @@ export default function Portfolio({ onNavigateToChart }) {
     </div>
   )
 }
-
