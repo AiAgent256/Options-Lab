@@ -340,11 +340,7 @@ export default function Portfolio({ onNavigateToChart }) {
 
         // For closed positions, stop contributing after exit date
         if (h.isClosed && h.exitDate && date > h.exitDate + "T23") {
-          // After close: add realized P&L to equity running total
-          totalEquity += h.margin + h.pnl
-          totalMargin += h.margin
-          active++
-          return
+          return // no longer in portfolio — skip entirely
         }
 
         const klines = historicalData[h.cryptoKey]
@@ -1029,20 +1025,21 @@ export default function Portfolio({ onNavigateToChart }) {
       )}
 
       {/* ─── TRADE HISTORY (Closed Positions) ─── */}
-      {enrichedHoldings.some(h => h.isClosed) && (
-        <div style={{ marginTop: 30 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-            <span>Trade History</span>
-            <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: "#f59e0b15", color: "#f59e0b" }}>
-              {enrichedHoldings.filter(h => h.isClosed).length} closed
-            </span>
+      <div style={{ marginTop: 30 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+          <span>Trade History</span>
+          <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: "#f59e0b15", color: "#f59e0b" }}>
+            {enrichedHoldings.filter(h => h.isClosed).length} closed
+          </span>
+          {portfolio.realizedPnl !== 0 && (
             <span style={{ fontSize: 10, fontWeight: 400, color: portfolio.realizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>
               Realized: {fmtPnl(portfolio.realizedPnl)}
             </span>
-          </div>
-          <div className="pf-card" style={{ borderTop: "2px solid #f59e0b40" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table className="pf-table">
+          )}
+        </div>
+        <div className="pf-card" style={{ borderTop: "2px solid #f59e0b40" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table className="pf-table">
                 <thead><tr>
                   <th style={{ textAlign: "left" }}>Asset</th>
                   <th>Type</th>
@@ -1059,6 +1056,13 @@ export default function Portfolio({ onNavigateToChart }) {
                   <th></th>
                 </tr></thead>
                 <tbody>
+                  {enrichedHoldings.filter(h => h.isClosed).length === 0 && (
+                    <tr>
+                      <td colSpan={13} style={{ textAlign: "center", padding: "24px 0", color: "#3a4050", fontSize: 11 }}>
+                        No closed trades yet. Use the <span style={{ color: "#f59e0b" }}>Close</span> button on a position or add a historical trade with "Already Closed" checked.
+                      </td>
+                    </tr>
+                  )}
                   {enrichedHoldings.filter(h => h.isClosed).sort((a, b) => (b.exitDate || "").localeCompare(a.exitDate || "")).map(h => (
                     <tr key={h.id}>
                       <td style={{ textAlign: "left" }}>
@@ -1091,6 +1095,7 @@ export default function Portfolio({ onNavigateToChart }) {
                     </tr>
                   ))}
                 </tbody>
+                {enrichedHoldings.some(h => h.isClosed) && (
                 <tfoot>
                   <tr style={{ borderTop: "2px solid #1e2330" }}>
                     <td style={{ textAlign: "left", fontWeight: 700, color: "#f59e0b" }} colSpan={4}>Total Realized</td>
@@ -1106,11 +1111,11 @@ export default function Portfolio({ onNavigateToChart }) {
                     <td></td>
                   </tr>
                 </tfoot>
+                )}
               </table>
             </div>
           </div>
         </div>
-      )}
     </div>
   )
 }
