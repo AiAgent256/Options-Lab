@@ -131,6 +131,10 @@ export default function Portfolio({ onNavigateToChart }) {
   const [customTo, setCustomTo] = useState(new Date().toISOString().split("T")[0])
   const [showAddForm, setShowAddForm] = useState(false)
   const [closingId, setClosingId] = useState(null) // ID of position being closed
+  const [startingCapital, setStartingCapital] = useState(() => {
+    try { return parseFloat(localStorage.getItem("optlab:starting-capital")) || 0 } catch { return 0 }
+  })
+  const [editingCapital, setEditingCapital] = useState(false)
 
   // New holding form state
   const [newHolding, setNewHolding] = useState({
@@ -139,10 +143,13 @@ export default function Portfolio({ onNavigateToChart }) {
     status: "open", exitPrice: 0, exitDate: "",
   })
 
-  // Persist holdings
+  // Persist holdings + starting capital
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings)) } catch {}
   }, [holdings])
+  useEffect(() => {
+    try { localStorage.setItem("optlab:starting-capital", startingCapital.toString()) } catch {}
+  }, [startingCapital])
 
   // ─── RESOLVE TRACKED HOLDINGS (crypto + equity) ────────────────────────
   const trackedHoldings = useMemo(() => {
@@ -283,23 +290,31 @@ export default function Portfolio({ onNavigateToChart }) {
     const unrealizedPnl = openHoldings.reduce((s, h) => s + h.pnl, 0)
     const realizedPnl = closedHoldings.reduce((s, h) => s + h.pnl, 0)
     const totalPnl = unrealizedPnl + realizedPnl
-    const totalCost = totalMargin + closedHoldings.reduce((s, h) => s + h.margin, 0)
+
+    // Cash = starting capital minus what's currently deployed + realized proceeds
+    // If no starting capital set, cash = 0 (user needs to set it)
+    const cash = startingCapital > 0 ? startingCapital - totalMargin + realizedPnl : 0
+    const totalPortfolioValue = totalEquity + Math.max(0, cash)
+
+    const totalCost = startingCapital > 0 ? startingCapital : totalMargin + closedHoldings.reduce((s, h) => s + h.margin, 0)
     const totalPnlPct = totalCost > 0 ? totalPnl / totalCost : 0
     const totalNotional = openHoldings.reduce((s, h) => s + h.notional, 0)
 
-    // Allocation based on portfolio value (equity), not notional — open positions only
-    const allocation = openHoldings.map(h => ({
+    // Allocation based on portfolio value — open positions + cash
+    const allocItems = openHoldings.map(h => ({
       name: h.symbol, value: Math.max(0, h.portfolioValue), color: h.color,
-      pct: totalEquity > 0 ? Math.max(0, h.portfolioValue) / totalEquity : 0,
     }))
+    if (cash > 0) allocItems.push({ name: "Cash", value: cash, color: "#6a7080" })
+    const allocTotal = allocItems.reduce((s, a) => s + a.value, 0)
+    const allocation = allocItems.map(a => ({ ...a, pct: allocTotal > 0 ? a.value / allocTotal : 0 }))
 
-    // Best / worst performers by P&L% — all positions
-    const sorted = [...enrichedHoldings].sort((a, b) => b.pnlPct - a.pnlPct)
+    // Best / worst performers by P&L% — open positions only for best/worst
+    const sorted = [...openHoldings].sort((a, b) => b.pnlPct - a.pnlPct)
     const best = sorted[0]
     const worst = sorted[sorted.length - 1]
 
-    return { totalMargin, totalEquity, unrealizedPnl, realizedPnl, totalPnl, totalPnlPct, totalNotional, allocation, best, worst, openCount: openHoldings.length, closedCount: closedHoldings.length }
-  }, [enrichedHoldings])
+    return { totalMargin, totalEquity, unrealizedPnl, realizedPnl, totalPnl, totalPnlPct, totalNotional, allocation, best, worst, openCount: openHoldings.length, closedCount: closedHoldings.length, cash, totalPortfolioValue }
+  }, [enrichedHoldings, startingCapital])
 
   // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
   const portfolioChart = useMemo(() => {
@@ -333,6 +348,7 @@ export default function Portfolio({ onNavigateToChart }) {
       let totalEquity = 0
       let totalMargin = 0
       let active = 0
+      let cashAtDate = 0
 
       enrichedHoldings.forEach(h => {
         // String comparison works for YYYY-MM-DD format
@@ -340,7 +356,11 @@ export default function Portfolio({ onNavigateToChart }) {
 
         // For closed positions, stop contributing after exit date
         if (h.isClosed && h.exitDate && date > h.exitDate + "T23") {
-          return // no longer in portfolio — skip entirely
+          // Position was closed before this date — proceeds went to cash
+          if (startingCapital > 0) {
+            cashAtDate += h.pnl // realized P&L adds/subtracts from cash
+          }
+          return
         }
 
         const klines = historicalData[h.cryptoKey]
@@ -371,12 +391,17 @@ export default function Portfolio({ onNavigateToChart }) {
         }
       })
 
-      return { date, totalEquity, totalMargin, pnl: totalEquity - totalMargin, active }
+      // Add cash: starting capital minus currently deployed + realized from closed
+      const cash = startingCapital > 0 ? startingCapital - totalMargin + cashAtDate : 0
+      const totalWithCash = totalEquity + Math.max(0, cash)
+      const costBasis = startingCapital > 0 ? startingCapital : totalMargin
+
+      return { date, totalEquity: totalWithCash, totalMargin: costBasis, pnl: totalWithCash - costBasis, active: active || (cash > 0 ? 1 : 0) }
     }).filter(d => d.active > 0)
 
     console.log(`[Chart] final points: ${chartData.length}`, chartData.slice(0, 3))
     return chartData
-  }, [historicalData, enrichedHoldings, chartRange, customFrom, customTo])
+  }, [historicalData, enrichedHoldings, chartRange, customFrom, customTo, startingCapital])
 
   // ─── INDIVIDUAL HOLDING CHART DATA ──────────────────────────────────────
   const holdingChartData = useCallback((holding) => {
@@ -464,11 +489,11 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* ─── PORTFOLIO HEADER ─── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "2px", color: "#4a5060", marginBottom: 4 }}>Portfolio Equity</div>
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "2px", color: "#4a5060", marginBottom: 4 }}>Portfolio Value</div>
           <div style={{ fontSize: 32, fontWeight: 700, color: "#e0e4ec", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-1px" }}>
-            {fmtDollar(portfolio.totalEquity)}
+            {fmtDollar(startingCapital > 0 ? portfolio.totalPortfolioValue : portfolio.totalEquity)}
           </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 12 }}>
+          <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 12, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
               {fmtPnl(portfolio.totalPnl)}
             </span>
@@ -476,7 +501,10 @@ export default function Portfolio({ onNavigateToChart }) {
               {fmtPct(portfolio.totalPnlPct)}
             </span>
             <span style={{ color: "#3a4050" }}>·</span>
-            <span style={{ color: "#4a5060" }}>Margin: {fmtDollar(portfolio.totalMargin)}</span>
+            <span style={{ color: "#4a5060" }}>Deployed: {fmtDollar(portfolio.totalMargin)}</span>
+            {startingCapital > 0 && portfolio.cash > 0 && (
+              <span style={{ color: "#6a7080" }}>Cash: {fmtDollar(portfolio.cash)}</span>
+            )}
             {portfolio.totalNotional !== portfolio.totalEquity && (
               <span style={{ color: "#3a4050" }}>Notional: {fmtDollar(portfolio.totalNotional)}</span>
             )}
@@ -631,14 +659,32 @@ export default function Portfolio({ onNavigateToChart }) {
 
       {/* ─── SUMMARY METRICS ─── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
-        <div className="pf-metric">
-          <div className="pf-label">Open Margin / Cost</div>
-          <div className="pf-value">{fmtDollar(portfolio.totalMargin)}</div>
+        <div className="pf-metric" style={{ cursor: "pointer", borderColor: editingCapital ? "#3b82f6" : undefined }} onClick={() => setEditingCapital(true)}>
+          <div className="pf-label">Starting Capital {startingCapital === 0 && <span style={{ color: "#f59e0b", fontSize: 8 }}>⚠ SET</span>}</div>
+          {editingCapital ? (
+            <input className="pf-input" type="number" step="any" autoFocus
+              value={startingCapital || ""}
+              placeholder="e.g. 125000"
+              onChange={e => setStartingCapital(parseFloat(e.target.value) || 0)}
+              onBlur={() => setEditingCapital(false)}
+              onKeyDown={e => e.key === "Enter" && setEditingCapital(false)}
+              style={{ fontSize: 16, fontWeight: 600, padding: "4px 8px" }} />
+          ) : (
+            <div className="pf-value">{startingCapital > 0 ? fmtDollar(startingCapital) : "—"}</div>
+          )}
         </div>
         <div className="pf-metric">
-          <div className="pf-label">Portfolio Equity</div>
-          <div className="pf-value" style={{ color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</div>
+          <div className="pf-label">Portfolio Value</div>
+          <div className="pf-value" style={{ color: portfolio.totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>
+            {fmtDollar(startingCapital > 0 ? portfolio.totalPortfolioValue : portfolio.totalEquity)}
+          </div>
         </div>
+        {startingCapital > 0 && portfolio.cash > 0 && (
+          <div className="pf-metric" style={{ borderLeft: "3px solid #6a7080" }}>
+            <div className="pf-label">Cash</div>
+            <div className="pf-value" style={{ color: "#6a7080" }}>{fmtDollar(portfolio.cash)}</div>
+          </div>
+        )}
         <div className="pf-metric">
           <div className="pf-label">Unrealized P&L</div>
           <div className="pf-value" style={{ color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.unrealizedPnl)}</div>
@@ -675,7 +721,28 @@ export default function Portfolio({ onNavigateToChart }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, marginBottom: 20 }}>
         <div className="pf-card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Equity Over Time</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#5a6070" }}>Portfolio Equity Over Time</div>
+              {portfolioChart.length > 1 && (() => {
+                const first = portfolioChart[0].totalEquity
+                const last = portfolioChart[portfolioChart.length - 1].totalEquity
+                const periodReturn = first > 0 ? (last - first) / first : 0
+                const periodDollar = last - first
+                return (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: periodReturn >= 0 ? "#22c55e" : "#ef4444" }}>
+                      {periodReturn >= 0 ? "+" : ""}{(periodReturn * 100).toFixed(2)}%
+                    </span>
+                    <span style={{ fontSize: 11, color: periodDollar >= 0 ? "#22c55e80" : "#ef444480" }}>
+                      {fmtPnl(periodDollar)}
+                    </span>
+                    <span style={{ fontSize: 9, color: "#3a4050" }}>
+                      {chartRange === "CUSTOM" ? "custom" : chartRange.toLowerCase()}
+                    </span>
+                  </div>
+                )
+              })()}
+            </div>
             <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
               {["1D", "1W", "1M", "3M", "6M", "1Y", "ALL", "CUSTOM"].map(r => (
                 <button key={r} className={`pf-btn ${chartRange === r ? "pf-btn-primary" : ""}`}
