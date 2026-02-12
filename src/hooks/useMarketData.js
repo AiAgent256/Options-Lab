@@ -20,7 +20,7 @@ const COINBASE_MAP = {
   LINK: "LINK-USD", NEAR: "NEAR-USD", SUI: "SUI-USD", APT: "APT-USD",
   ARB: "ARB-USD", OP: "OP-USD", MATIC: "MATIC-USD", SEI: "SEI-USD",
   INJ: "INJ-USD", TIA: "TIA-USD", RENDER: "RENDER-USD",
-  FET: "FET-USD", HYPE: "HYPE-USD",
+  FET: "FET-USD", HYPE: "HYPE-USD", ZRO: "ZRO-USD",
 }
 
 const PHEMEX_MAP = {
@@ -30,7 +30,7 @@ const PHEMEX_MAP = {
   ARB: "ARBUSDT", OP: "OPUSDT", SEI: "SEIUSDT", INJ: "INJUSDT",
   TIA: "TIAUSDT", WIF: "WIFUSDT", HYPE: "HYPEUSDT",
   RENDER: "RENDERUSDT", FET: "FETUSDT", TAO: "TAOUSDT",
-  CC: "CCUSDT", PEPE: "1000PEPEUSDT",
+  CC: "CCUSDT", PEPE: "1000PEPEUSDT", ZRO: "ZROUSDT",
 }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ export function isEquitySymbol(symbol) {
 export function isTrackedSymbol(symbol, type) {
   if (isCryptoSymbol(symbol)) return true
   if (type === "equity") return true
+  if (type === "crypto_spot" || type === "crypto_perp") return true
   // Any 1-5 letter ticker is assumed to be an equity we can look up
   const key = normalizeSymbol(symbol)
   if (/^[A-Z]{1,5}$/.test(key)) return true
@@ -65,14 +66,19 @@ export function isTrackedSymbol(symbol, type) {
 function resolveExchange(symbol, type) {
   const key = normalizeSymbol(symbol)
   const isPerp = type === "crypto_perp"
+  const isSpot = type === "crypto_spot"
 
   // Crypto perps → Phemex
   if (isPerp && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
   if (isPerp && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
+  // If user marked as perp but not in map, try Phemex with guessed symbol
+  if (isPerp) return { exchange: "phemex", sym: `${key}USDT`, key }
 
   // Crypto spot → Coinbase (skip for equity type)
   if (type !== "equity" && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
   if (type !== "equity" && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
+  // If user marked as crypto_spot but not in map, try Coinbase with guessed symbol
+  if (isSpot) return { exchange: "coinbase", sym: `${key}-USD`, key }
 
   // Equities → Yahoo Finance
   if (/^[A-Z]{1,5}$/.test(key)) return { exchange: "yahoo", sym: key, key }
