@@ -36,7 +36,11 @@ const PHEMEX_MAP = {
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
 export function normalizeSymbol(symbol) {
-  return symbol.toUpperCase().replace("/USDT", "").replace("/USD", "").replace("/", "").trim()
+  return symbol.toUpperCase()
+    .replace("/USDT", "").replace("/USD", "").replace("/USDC", "")
+    .replace("/", "")
+    .replace(/USDT$/, "").replace(/USDC$/, "").replace(/USD$/, "")
+    .trim()
 }
 
 export function isCryptoSymbol(symbol) {
