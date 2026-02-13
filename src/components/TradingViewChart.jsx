@@ -24,48 +24,37 @@ function TradingViewChart({ symbol = "BINANCE:BTCUSDT" }) {
     widgetContainer.style.width = "100%"
     containerRef.current.appendChild(widgetContainer)
 
-    // Create and inject the TradingView widget script
+    // Load the TradingView embed script
     const script = document.createElement("script")
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
     script.type = "text/javascript"
     script.async = true
-    script.innerHTML = JSON.stringify({
-      // Core
-      symbol: symbol,
-      width: "100%",
-      height: "100%",
-      autosize: true,
+    containerRef.current.appendChild(script)
 
-      // Appearance
+    // Configuration goes in a separate application/json script tag
+    const configScript = document.createElement("script")
+    configScript.type = "application/json"
+    configScript.textContent = JSON.stringify({
+      symbol: symbol,
+      autosize: true,
       theme: "dark",
-      style: "1",         // 1 = Candlestick
-      colorTheme: "dark",
+      style: "1",
       backgroundColor: "rgba(10, 12, 16, 1)",
       gridColor: "rgba(26, 29, 40, 0.6)",
-
-      // Time
       timezone: "Etc/UTC",
-      interval: "60",     // 1 hour default
+      interval: "60",
       range: "3M",
-
-      // Features
       allow_symbol_change: true,
       save_image: true,
       hide_volume: false,
       support_host: "https://www.tradingview.com",
-
-      // Toolbar
       hide_top_toolbar: false,
       hide_side_toolbar: false,
       hide_legend: false,
-
-      // Studies (indicators loaded by default)
       studies: [
         "STD;Bollinger_Bands",
         "STD;Volume",
       ],
-
-      // Appearance details
       withdateranges: true,
       details: true,
       hotlist: false,
@@ -74,9 +63,7 @@ function TradingViewChart({ symbol = "BINANCE:BTCUSDT" }) {
       popup_width: "1000",
       popup_height: "650",
     })
-
-    containerRef.current.appendChild(script)
-    scriptRef.current = script
+    containerRef.current.appendChild(configScript)
 
     return () => {
       if (containerRef.current) {

@@ -8,26 +8,35 @@ const TVChart = memo(function TVChart({ symbol, interval = "60", showToolbar = t
     if (!ref.current) return
     ref.current.innerHTML = ""
 
-    const widgetContainer = document.createElement("div")
-    widgetContainer.className = "tradingview-widget-container__widget"
-    widgetContainer.style.height = "100%"
-    widgetContainer.style.width = "100%"
-    ref.current.appendChild(widgetContainer)
+    // Build the TradingView widget using the modern embed format:
+    // 1. Outer container div
+    // 2. Inner widget div
+    // 3. Script tag loading the embed JS
+    // 4. Separate <script type="application/json"> with config
+    const container = document.createElement("div")
+    container.className = "tradingview-widget-container"
+    container.style.height = "100%"
+    container.style.width = "100%"
+
+    const widgetDiv = document.createElement("div")
+    widgetDiv.className = "tradingview-widget-container__widget"
+    widgetDiv.style.height = "100%"
+    widgetDiv.style.width = "100%"
+    container.appendChild(widgetDiv)
 
     const script = document.createElement("script")
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
     script.type = "text/javascript"
     script.async = true
-    script.innerHTML = JSON.stringify({
+    container.appendChild(script)
+
+    const configScript = document.createElement("script")
+    configScript.type = "application/json"
+    configScript.textContent = JSON.stringify({
       symbol,
-      width: "100%",
-      height: "100%",
       autosize: true,
       theme: "dark",
       style: "1",
-      colorTheme: "dark",
-      backgroundColor: "rgba(10, 12, 16, 1)",
-      gridColor: "rgba(26, 29, 40, 0.6)",
       timezone: "Etc/UTC",
       interval,
       range: "3M",
@@ -46,9 +55,12 @@ const TVChart = memo(function TVChart({ symbol, interval = "60", showToolbar = t
       show_popup_button: true,
       popup_width: "1000",
       popup_height: "650",
+      backgroundColor: "rgba(10, 12, 16, 1)",
+      gridColor: "rgba(26, 29, 40, 0.6)",
     })
+    container.appendChild(configScript)
 
-    ref.current.appendChild(script)
+    ref.current.appendChild(container)
     return () => { if (ref.current) ref.current.innerHTML = "" }
   }, [symbol, interval, showToolbar])
 

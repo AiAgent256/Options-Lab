@@ -42,21 +42,28 @@ const TvMiniChart = memo(({ symbol, width = "100%", height = 160 }) => {
   useEffect(() => {
     if (!ref.current) return
     ref.current.innerHTML = ""
-    const container = document.createElement("div")
-    container.className = "tradingview-widget-container__widget"
-    container.style.height = "100%"
-    ref.current.appendChild(container)
+    const outer = document.createElement("div")
+    outer.className = "tradingview-widget-container"
+    outer.style.height = "100%"
+    const widgetDiv = document.createElement("div")
+    widgetDiv.className = "tradingview-widget-container__widget"
+    widgetDiv.style.height = "100%"
+    outer.appendChild(widgetDiv)
     const script = document.createElement("script")
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js"
     script.async = true
-    script.innerHTML = JSON.stringify({
+    outer.appendChild(script)
+    const configScript = document.createElement("script")
+    configScript.type = "application/json"
+    configScript.textContent = JSON.stringify({
       symbol, width: "100%", height, locale: "en", dateRange: "12M",
       colorTheme: "dark", isTransparent: true, autosize: false,
       largeChartUrl: "", noTimeScale: false, chartOnly: false,
       trendLineColor: "rgba(59, 130, 246, 0.6)", underLineColor: "rgba(59, 130, 246, 0.1)",
       underLineBottomColor: "rgba(59, 130, 246, 0)", backgroundColor: "rgba(0,0,0,0)",
     })
-    ref.current.appendChild(script)
+    outer.appendChild(configScript)
+    ref.current.appendChild(outer)
     return () => { if (ref.current) ref.current.innerHTML = "" }
   }, [symbol, height])
   return <div ref={ref} style={{ width, height, overflow: "hidden" }} />
