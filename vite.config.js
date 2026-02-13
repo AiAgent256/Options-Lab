@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    open: true,
+    open: false,
     proxy: {
       '/api/coinbase': {
         target: 'https://api.exchange.coinbase.com',
