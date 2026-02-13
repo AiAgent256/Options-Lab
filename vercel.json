@@ -1,0 +1,10 @@
+{
+  "buildCommand": "vite build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/coinbase/:path*", "destination": "/api/coinbase/:path*" },
+    { "source": "/api/phemex/:path*", "destination": "/api/phemex/:path*" },
+    { "source": "/api/yahoo/:path*", "destination": "/api/yahoo/:path*" }
+  ]
+}
