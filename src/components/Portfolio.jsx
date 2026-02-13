@@ -131,6 +131,8 @@ export default function Portfolio({ onNavigateToChart }) {
   const [customTo, setCustomTo] = useState(new Date().toISOString().split("T")[0])
   const [showAddForm, setShowAddForm] = useState(false)
   const [closingId, setClosingId] = useState(null) // ID of position being closed
+  const [showSimulator, setShowSimulator] = useState(false)
+  const [targetPrices, setTargetPrices] = useState({}) // { [holdingId]: targetPrice }
 
   // New holding form state
   const [newHolding, setNewHolding] = useState({
@@ -300,6 +302,42 @@ export default function Portfolio({ onNavigateToChart }) {
 
     return { totalMargin, totalEquity, unrealizedPnl, realizedPnl, totalPnl, totalPnlPct, totalNotional, allocation, best, worst, openCount: openHoldings.length, closedCount: closedHoldings.length }
   }, [enrichedHoldings])
+
+  // ─── PROJECTED PORTFOLIO (What-If Simulator) ──────────────────────────
+  const projectedPortfolio = useMemo(() => {
+    const openHoldings = enrichedHoldings.filter(h => !h.isClosed)
+    const rows = openHoldings.map(h => {
+      const targetPrice = targetPrices[h.id] || 0
+      const hasTarget = targetPrice > 0
+      const currentValue = h.equity
+      const currentPnl = h.pnl
+      const currentPnlPct = h.pnlPct
+      let projectedValue, projectedPnl, projectedPnlPct
+      if (hasTarget) {
+        if (h.isLeveraged) {
+          projectedPnl = (targetPrice - h.costBasis) * h.quantity * h.direction
+          projectedValue = h.margin + projectedPnl
+          projectedPnlPct = h.margin > 0 ? projectedPnl / h.margin : 0
+        } else {
+          projectedValue = h.quantity * targetPrice
+          projectedPnl = projectedValue - h.margin
+          projectedPnlPct = h.margin > 0 ? projectedPnl / h.margin : 0
+        }
+      } else {
+        projectedValue = currentValue
+        projectedPnl = currentPnl
+        projectedPnlPct = currentPnlPct
+      }
+      return { ...h, targetPrice, hasTarget, currentValue, currentPnl, currentPnlPct, projectedValue, projectedPnl, projectedPnlPct, deltaPnl: projectedPnl - currentPnl, deltaValue: projectedValue - currentValue }
+    })
+    const totalCurrentValue = rows.reduce((s, r) => s + r.currentValue, 0)
+    const totalCurrentPnl = rows.reduce((s, r) => s + r.currentPnl, 0)
+    const totalCurrentMargin = rows.reduce((s, r) => s + r.margin, 0)
+    const totalProjectedValue = rows.reduce((s, r) => s + r.projectedValue, 0)
+    const totalProjectedPnl = rows.reduce((s, r) => s + r.projectedPnl, 0)
+    const totalProjectedPnlPct = totalCurrentMargin > 0 ? totalProjectedPnl / totalCurrentMargin : 0
+    return { rows, totalCurrentValue, totalCurrentPnl, totalCurrentMargin, totalProjectedValue, totalProjectedPnl, totalProjectedPnlPct, totalDeltaPnl: totalProjectedPnl - totalCurrentPnl, totalDeltaValue: totalProjectedValue - totalCurrentValue }
+  }, [enrichedHoldings, targetPrices])
 
   // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
   const portfolioChart = useMemo(() => {
@@ -1021,6 +1059,167 @@ export default function Portfolio({ onNavigateToChart }) {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* ─── CURRENT POSITIONS SUMMARY TABLE ─── */}
+      {enrichedHoldings.some(h => !h.isClosed) && (
+        <div style={{ marginTop: 24, marginBottom: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <span>Current Positions</span>
+            <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: "#3b82f615", color: "#3b82f6" }}>
+              {enrichedHoldings.filter(h => !h.isClosed).length} open
+            </span>
+          </div>
+          <div className="pf-card" style={{ borderTop: "2px solid #3b82f640" }}>
+            <div style={{ overflowX: "auto" }}>
+              <table className="pf-table">
+                <thead><tr>
+                  <th style={{ textAlign: "left" }}>Asset</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Entry</th>
+                  <th>Current</th>
+                  <th>Margin / Cost</th>
+                  <th>Equity</th>
+                  <th>P&L ($)</th>
+                  <th>P&L (%)</th>
+                  <th>Days</th>
+                </tr></thead>
+                <tbody>
+                  {enrichedHoldings.filter(h => !h.isClosed).map(h => (
+                    <tr key={h.id}>
+                      <td style={{ textAlign: "left" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: h.color }} />
+                          <span style={{ fontWeight: 600, color: "#e0e4ec" }}>{h.symbol}</span>
+                          {h.name && <span style={{ color: "#4a5060", fontSize: 10 }}>{h.name}</span>}
+                        </div>
+                      </td>
+                      <td style={{ fontSize: 10 }}>
+                        {h.type === "crypto_perp" ? <span>{h.leverage}× {h.direction === 1 ? "L" : "S"}</span> : h.type.includes("crypto") ? "Spot" : h.type.includes("option") ? "Option" : "Equity"}
+                      </td>
+                      <td>{h.quantity.toLocaleString()}</td>
+                      <td>{fmtDollar(h.costBasis)}</td>
+                      <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentPrice)}</td>
+                      <td>{fmtDollar(h.margin)}</td>
+                      <td style={{ fontWeight: 600, color: h.equity >= h.margin ? "#22c55e" : "#ef4444" }}>{fmtDollar(h.equity)}</td>
+                      <td style={{ color: h.pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(h.pnl)}</td>
+                      <td style={{ color: h.pnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(h.pnlPct)}</td>
+                      <td>{h.daysHeld}d</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: "2px solid #1e2330" }}>
+                    <td style={{ textAlign: "left", fontWeight: 700, color: "#e0e4ec" }} colSpan={5}>Total (Open)</td>
+                    <td style={{ fontWeight: 600 }}>{fmtDollar(portfolio.totalMargin)}</td>
+                    <td style={{ fontWeight: 700, color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</td>
+                    <td style={{ fontWeight: 700, color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.unrealizedPnl)}</td>
+                    <td style={{ fontWeight: 600, color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalMargin > 0 ? portfolio.unrealizedPnl / portfolio.totalMargin : 0)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PORTFOLIO SIMULATOR (What-If Analysis) ─── */}
+      {enrichedHoldings.some(h => !h.isClosed) && (
+        <div style={{ marginTop: 24, marginBottom: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setShowSimulator(!showSimulator)}>
+            <span style={{ color: "#8b5cf6" }}>{showSimulator ? "▾" : "▸"}</span>
+            <span>Portfolio Simulator</span>
+            <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: "#8b5cf615", color: "#8b5cf6" }}>What-If Analysis</span>
+          </div>
+          {showSimulator && (
+            <div className="pf-card" style={{ borderTop: "2px solid #8b5cf640" }}>
+              {/* Summary metrics */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+                <div style={{ padding: "8px 12px", background: "#0a0c10", borderRadius: 6 }}>
+                  <div style={{ fontSize: 8, color: "#4a5060", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>Current Portfolio</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#e0e4ec" }}>{fmtDollar(projectedPortfolio.totalCurrentValue)}</div>
+                  <div style={{ fontSize: 10, marginTop: 2, color: projectedPortfolio.totalCurrentPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalCurrentPnl)}</div>
+                </div>
+                <div style={{ padding: "8px 12px", background: "#0a0c10", borderRadius: 6, borderLeft: "3px solid #8b5cf6" }}>
+                  <div style={{ fontSize: 8, color: "#4a5060", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>Projected Portfolio</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#8b5cf6" }}>{fmtDollar(projectedPortfolio.totalProjectedValue)}</div>
+                  <div style={{ fontSize: 10, marginTop: 2, color: projectedPortfolio.totalProjectedPnl >= 0 ? "#22c55e" : "#ef4444" }}>
+                    {fmtPnl(projectedPortfolio.totalProjectedPnl)} ({fmtPct(projectedPortfolio.totalProjectedPnlPct)})
+                  </div>
+                </div>
+                <div style={{ padding: "8px 12px", background: "#0a0c10", borderRadius: 6 }}>
+                  <div style={{ fontSize: 8, color: "#4a5060", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>Delta (Change)</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: projectedPortfolio.totalDeltaPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalDeltaPnl)}</div>
+                  <div style={{ fontSize: 10, marginTop: 2, color: projectedPortfolio.totalDeltaValue >= 0 ? "#22c55e80" : "#ef444480" }}>
+                    {projectedPortfolio.totalDeltaValue >= 0 ? "+" : ""}{fmtDollar(projectedPortfolio.totalDeltaValue)} in equity
+                  </div>
+                </div>
+              </div>
+
+              {/* Target price table */}
+              <div style={{ overflowX: "auto" }}>
+                <table className="pf-table">
+                  <thead><tr>
+                    <th style={{ textAlign: "left" }}>Asset</th>
+                    <th>Qty</th>
+                    <th>Entry</th>
+                    <th>Current</th>
+                    <th>Current P&L</th>
+                    <th style={{ color: "#8b5cf6" }}>Target Price</th>
+                    <th style={{ color: "#8b5cf6" }}>Projected Value</th>
+                    <th style={{ color: "#8b5cf6" }}>Projected P&L</th>
+                    <th style={{ color: "#8b5cf6" }}>Projected %</th>
+                    <th>Delta</th>
+                  </tr></thead>
+                  <tbody>
+                    {projectedPortfolio.rows.map(r => (
+                      <tr key={r.id}>
+                        <td style={{ textAlign: "left" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: r.color }} />
+                            <span style={{ fontWeight: 600, color: "#e0e4ec" }}>{r.symbol}</span>
+                            {r.isLeveraged && <span style={{ fontSize: 8, color: "#f59e0b" }}>{r.leverage}×{r.direction === 1 ? "L" : "S"}</span>}
+                          </div>
+                        </td>
+                        <td>{r.quantity.toLocaleString()}</td>
+                        <td>{fmtDollar(r.costBasis)}</td>
+                        <td>{fmtDollar(r.currentPrice)}</td>
+                        <td style={{ color: r.currentPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(r.currentPnl)}</td>
+                        <td>
+                          <input className="pf-input" type="number" step="any" placeholder={r.currentPrice?.toFixed(2) || "0"}
+                            value={targetPrices[r.id] || ""} onChange={e => setTargetPrices(prev => ({ ...prev, [r.id]: parseFloat(e.target.value) || 0 }))}
+                            style={{ fontSize: 11, padding: "4px 8px", width: 100, borderColor: r.hasTarget ? "#8b5cf640" : undefined, background: r.hasTarget ? "#8b5cf608" : undefined }} />
+                        </td>
+                        <td style={{ fontWeight: 600, color: r.hasTarget ? "#8b5cf6" : "#5a6070" }}>{r.hasTarget ? fmtDollar(r.projectedValue) : "—"}</td>
+                        <td style={{ fontWeight: 600, color: r.hasTarget ? (r.projectedPnl >= 0 ? "#22c55e" : "#ef4444") : "#5a6070" }}>{r.hasTarget ? fmtPnl(r.projectedPnl) : "—"}</td>
+                        <td style={{ color: r.hasTarget ? (r.projectedPnlPct >= 0 ? "#22c55e" : "#ef4444") : "#5a6070" }}>{r.hasTarget ? fmtPct(r.projectedPnlPct) : "—"}</td>
+                        <td style={{ fontSize: 10, color: r.hasTarget ? (r.deltaPnl >= 0 ? "#22c55e" : "#ef4444") : "#3a4050" }}>{r.hasTarget ? fmtPnl(r.deltaPnl) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: "2px solid #1e2330" }}>
+                      <td style={{ textAlign: "left", fontWeight: 700, color: "#8b5cf6" }} colSpan={4}>Totals</td>
+                      <td style={{ color: projectedPortfolio.totalCurrentPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(projectedPortfolio.totalCurrentPnl)}</td>
+                      <td></td>
+                      <td style={{ fontWeight: 700, color: "#8b5cf6" }}>{fmtDollar(projectedPortfolio.totalProjectedValue)}</td>
+                      <td style={{ fontWeight: 700, color: projectedPortfolio.totalProjectedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalProjectedPnl)}</td>
+                      <td style={{ fontWeight: 600, color: projectedPortfolio.totalProjectedPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(projectedPortfolio.totalProjectedPnlPct)}</td>
+                      <td style={{ fontWeight: 600, color: projectedPortfolio.totalDeltaPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalDeltaPnl)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+                <button className="pf-btn" style={{ fontSize: 10, padding: "4px 12px", color: "#8b5cf6", borderColor: "#8b5cf640" }} onClick={() => setTargetPrices({})}>
+                  Reset All Targets
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
