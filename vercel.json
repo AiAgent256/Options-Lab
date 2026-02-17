@@ -1,4 +1,18 @@
 {
-        "buildCommand": "vite build",
-        "outputDirectory": "dist"
+          "builds": [
+                      {
+                                    "src": "package.json",
+                                    "use": "@vercel/static-build",
+                                    "config": { "distDir": "dist" }
+                      },
+                      { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
+                      { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
+                      { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
+                      { "src": "api/yahoo/[...path].js", "use": "@vercel/node" }
+          ],
+          "routes": [
+                      { "src": "/api/(.*)", "dest": "/api/$1" },
+                      { "handle": "filesystem" },
+                      { "src": "/(.*)", "dest": "/index.html" }
+          ]
 }
