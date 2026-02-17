@@ -449,7 +449,7 @@ export default function Portfolio({ onNavigateToChart }) {
   // ─── CRUD ───────────────────────────────────────────────────────────────
   const addHolding = () => {
     if (!newHolding.symbol.trim()) return
-    const h = { ...newHolding, id: nextId, currentPrice: 0, symbol: newHolding.symbol.toUpperCase() }
+    const h = { ...newHolding, id: nextId, currentPrice: 0, symbol: normalizeSymbol(newHolding.symbol) }
     // Default status for new holdings
     if (!h.status) h.status = "open"
     setHoldings(prev => [...prev, h])
@@ -588,6 +588,9 @@ export default function Portfolio({ onNavigateToChart }) {
                 "Symbol"
               } value={newHolding.symbol}
                 onChange={e => setNewHolding(p => ({ ...p, symbol: e.target.value }))} />
+              {newHolding.symbol && normalizeSymbol(newHolding.symbol) !== newHolding.symbol.toUpperCase().trim() && (
+                <div style={{ fontSize: 9, color: "#3b82f6", marginTop: 2 }}>→ resolves to: {normalizeSymbol(newHolding.symbol)}</div>
+              )}
             </div>
             <div>
               <div className="pf-label">Name</div>
@@ -928,7 +931,7 @@ export default function Portfolio({ onNavigateToChart }) {
                 {/* Inline edit */}
                 {isEditing && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 10, padding: 10, background: "#0a0c10", borderRadius: 6 }}>
-                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Symbol</div><input className="pf-input" type="text" value={h.symbol} onChange={e => updateHolding(h.id, "symbol", e.target.value.toUpperCase())} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Symbol</div><input className="pf-input" type="text" value={h.symbol} onChange={e => updateHolding(h.id, "symbol", normalizeSymbol(e.target.value))} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Exchange</div><select className="pf-input" value={h.exchange || ""} onChange={e => { const v = VENUES.find(v => v.value === e.target.value); updateHolding(h.id, "exchange", e.target.value); if (v) updateHolding(h.id, "type", v.type); }} style={{ fontSize: 11, padding: "4px 6px" }}><option value="">Auto</option>{VENUES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}</select></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Qty (tokens)</div><input className="pf-input" type="number" step="any" value={h.quantity} onChange={e => updateHolding(h.id, "quantity", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Entry Price</div><input className="pf-input" type="number" step="any" value={h.costBasis} onChange={e => updateHolding(h.id, "costBasis", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
