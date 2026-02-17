@@ -50,6 +50,32 @@ const PHEMEX_MAP = {
   CC: "CCUSDT", PEPE: "1000PEPEUSDT", ZRO: "ZROUSDT",
 }
 
+// Yahoo Finance uses non-standard tickers for many newer crypto.
+// ZRO-USD on Yahoo is actually "Carb0n.fi", not LayerZero.
+// This map overrides the default TICKER-USD pattern for Yahoo crypto fallback.
+const YAHOO_CRYPTO_MAP = {
+  ZRO: "ZRO26997-USD",
+  SUI: "SUI20947-USD",
+  TIA: "TIA22861-USD",
+  SEI: "SEI-USD",
+  ARB: "ARB11841-USD",
+  OP: "OP-USD",
+  INJ: "INJ-USD",
+  APT: "APT21794-USD",
+  HYPE: "HYPE32196-USD",
+  FET: "FET-USD",
+  RENDER: "RENDER-USD",
+  WIF: "WIF-USD",
+  TAO: "TAO22974-USD",
+  CC: null,  // Not on Yahoo
+}
+
+// Get Yahoo ticker for a crypto symbol (fallback when Coinbase/Phemex 404)
+function yahooTickerForCrypto(key) {
+  if (key in YAHOO_CRYPTO_MAP) return YAHOO_CRYPTO_MAP[key]
+  return `${key}-USD`  // Default: BTC → BTC-USD, ETH → ETH-USD, etc.
+}
+
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
 export function normalizeSymbol(symbol) {
@@ -407,14 +433,28 @@ export async function fetchTickers(holdings) {
           data.change = await coinbase24h(resolved.sym)
         } else {
           // FALLBACK: Coinbase Exchange API doesn't have this product.
-          // Try Yahoo Finance with TICKER-USD format (covers most crypto).
-          const yahooSym = `${resolved.key}-USD`
-          console.log(`[Ticker] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
-          data = await yahooQuote(yahooSym)
-          if (data) console.log(`[Ticker] ${resolved.key}: ✅ Yahoo fallback: $${data.price}`)
+          const yahooSym = yahooTickerForCrypto(resolved.key)
+          if (yahooSym) {
+            console.log(`[Ticker] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
+            data = await yahooQuote(yahooSym)
+            if (data) console.log(`[Ticker] ${resolved.key}: ✅ Yahoo fallback: $${data.price}`)
+          } else {
+            console.warn(`[Ticker] ${resolved.key}: CB failed, no Yahoo mapping`)
+          }
         }
       } else if (resolved.exchange === "phemex") {
         data = await phemexTicker(resolved.sym)
+        if (!data) {
+          // FALLBACK: Phemex doesn't have this product.
+          const yahooSym = yahooTickerForCrypto(resolved.key)
+          if (yahooSym) {
+            console.log(`[Ticker] ${resolved.key}: PH failed, trying Yahoo ${yahooSym}`)
+            data = await yahooQuote(yahooSym)
+            if (data) console.log(`[Ticker] ${resolved.key}: ✅ Yahoo fallback: $${data.price}`)
+          } else {
+            console.warn(`[Ticker] ${resolved.key}: PH failed, no Yahoo mapping`)
+          }
+        }
       } else if (resolved.exchange === "yahoo") {
         data = await yahooQuote(resolved.sym)
       }
@@ -453,14 +493,25 @@ export async function fetchAllKlines(requests) {
         klines = await coinbaseCandles(resolved.sym, req.startTime)
         if (klines.length === 0) {
           // FALLBACK: Coinbase Exchange API doesn't have this product.
-          const yahooSym = `${resolved.key}-USD`
-          console.log(`[Klines] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
-          klines = await yahooKlines(yahooSym, req.startTime)
-          if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ Yahoo fallback: ${klines.length} bars`)
+          const yahooSym = yahooTickerForCrypto(resolved.key)
+          if (yahooSym) {
+            console.log(`[Klines] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
+            klines = await yahooKlines(yahooSym, req.startTime)
+            if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ Yahoo fallback: ${klines.length} bars`)
+          }
         }
       } else if (resolved.exchange === "phemex") {
         const ticker = await phemexTicker(resolved.sym)
         klines = await phemexKlines(resolved.sym, req.startTime, ticker?.price || 0)
+        if (klines.length === 0) {
+          // FALLBACK: Phemex doesn't have this product.
+          const yahooSym = yahooTickerForCrypto(resolved.key)
+          if (yahooSym) {
+            console.log(`[Klines] ${resolved.key}: PH failed, trying Yahoo ${yahooSym}`)
+            klines = await yahooKlines(yahooSym, req.startTime)
+            if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ Yahoo fallback: ${klines.length} bars`)
+          }
+        }
       } else if (resolved.exchange === "yahoo") {
         klines = await yahooKlines(resolved.sym, req.startTime)
       }
