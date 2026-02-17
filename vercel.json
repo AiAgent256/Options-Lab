@@ -1,18 +1,21 @@
 {
-          "builds": [
-                      {
-                                    "src": "package.json",
-                                    "use": "@vercel/static-build",
-                                    "config": { "distDir": "dist" }
-                      },
-                      { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
-                      { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
-                      { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
-                      { "src": "api/yahoo/[...path].js", "use": "@vercel/node" }
-          ],
-          "routes": [
-                      { "src": "/api/(.*)", "dest": "/api/$1" },
-                      { "handle": "filesystem" },
-                      { "src": "/(.*)", "dest": "/index.html" }
-          ]
+            "builds": [
+                          {
+                                          "src": "package.json",
+                                          "use": "@vercel/static-build",
+                                          "config": { "distDir": "dist" }
+                          },
+                          { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
+                          { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
+                          { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
+                          { "src": "api/yahoo/[...path].js", "use": "@vercel/node" }
+            ],
+            "routes": [
+                          { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
+                          { "src": "/api/coingecko/(.*)", "dest": "/api/coingecko/[...path].js" },
+                          { "src": "/api/phemex/(.*)", "dest": "/api/phemex/[...path].js" },
+                          { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
+                          { "handle": "filesystem" },
+                          { "src": "/(.*)", "dest": "/index.html" }
+            ]
 }
