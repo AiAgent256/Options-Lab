@@ -166,6 +166,15 @@ export default function Portfolio({ onNavigateToChart }) {
     return holdings.filter(h => isTrackedSymbol(h.symbol, h.type))
   }, [holdings])
 
+  // Stable key that only changes when the set of symbols/exchanges changes
+  // (not on quantity/price/name edits). Prevents fetch storms during inline edit.
+  const symbolSetKey = useMemo(() => {
+    return trackedHoldings
+      .map(h => `${normalizeSymbol(h.symbol)}|${h.type}|${h.exchange || ""}`)
+      .sort()
+      .join(",")
+  }, [trackedHoldings])
+
   // Earliest trade date per normalized key
   const earliestDates = useMemo(() => {
     const map = {}
@@ -178,17 +187,21 @@ export default function Portfolio({ onNavigateToChart }) {
   }, [trackedHoldings])
 
   // ─── POLL LIVE PRICES (Coinbase / Phemex / Yahoo Finance) ────────────
+  // Keep a ref to trackedHoldings so the poll always uses latest data
+  const trackedRef = useRef(trackedHoldings)
+  trackedRef.current = trackedHoldings
+
   useEffect(() => {
     if (trackedHoldings.length === 0) return
     let active = true
     const poll = async () => {
-      const tickers = await fetchTickers(trackedHoldings)
+      const tickers = await fetchTickers(trackedRef.current)
       if (active) setLiveData(tickers)
     }
     poll()
     const interval = setInterval(poll, 8000)
     return () => { active = false; clearInterval(interval) }
-  }, [trackedHoldings])
+  }, [symbolSetKey])
 
   // ─── FETCH HISTORICAL KLINES ────────────────────────────────────────────
   useEffect(() => {
@@ -217,7 +230,7 @@ export default function Portfolio({ onNavigateToChart }) {
       if (active) { setHistoricalData(data); setHistoryLoading(false) }
     })
     return () => { active = false }
-  }, [trackedHoldings])
+  }, [symbolSetKey])
 
   // ─── ENRICH HOLDINGS WITH LIVE DATA ─────────────────────────────────────
   const enrichedHoldings = useMemo(() => {
@@ -931,7 +944,7 @@ export default function Portfolio({ onNavigateToChart }) {
                 {/* Inline edit */}
                 {isEditing && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 10, padding: 10, background: "#0a0c10", borderRadius: 6 }}>
-                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Symbol</div><input className="pf-input" type="text" value={h.symbol} onChange={e => updateHolding(h.id, "symbol", normalizeSymbol(e.target.value))} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Symbol</div><input className="pf-input" type="text" value={h.symbol} onChange={e => updateHolding(h.id, "symbol", e.target.value.toUpperCase())} onBlur={e => updateHolding(h.id, "symbol", normalizeSymbol(e.target.value))} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Exchange</div><select className="pf-input" value={h.exchange || ""} onChange={e => { const v = VENUES.find(v => v.value === e.target.value); updateHolding(h.id, "exchange", e.target.value); if (v) updateHolding(h.id, "type", v.type); }} style={{ fontSize: 11, padding: "4px 6px" }}><option value="">Auto</option>{VENUES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}</select></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Qty (tokens)</div><input className="pf-input" type="number" step="any" value={h.quantity} onChange={e => updateHolding(h.id, "quantity", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Entry Price</div><input className="pf-input" type="number" step="any" value={h.costBasis} onChange={e => updateHolding(h.id, "costBasis", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
