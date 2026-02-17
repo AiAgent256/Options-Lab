@@ -37,9 +37,11 @@ const PHEMEX_MAP = {
 
 export function normalizeSymbol(symbol) {
   return symbol.toUpperCase()
-    .replace("/USDT", "").replace("/USD", "").replace("/USDC", "")
-    .replace("/", "")
-    .replace(/USDT$/, "").replace(/USDC$/, "").replace(/USD$/, "")
+    .replace(/[:/]/g, "")              // strip separators (ZRO:USDT → ZROUSDT, ZRO/USD → ZROUSD)
+    .replace(/USDT$/, "")              // strip trailing USDT
+    .replace(/USDC$/, "")              // strip trailing USDC
+    .replace(/USD$/, "")               // strip trailing USD
+    .replace(/PERP$/, "")              // strip trailing PERP
     .trim()
 }
 
@@ -67,27 +69,31 @@ export function isTrackedSymbol(symbol, type) {
   return false
 }
 
-function resolveExchange(symbol, type) {
+function resolveExchange(symbol, type, exchange) {
   const key = normalizeSymbol(symbol)
   const isPerp = type === "crypto_perp"
   const isSpot = type === "crypto_spot"
 
+  // If exchange is explicitly set, use it directly
+  if (exchange === "coinbase") return { exchange: "coinbase", sym: COINBASE_MAP[key] || `${key}-USD`, key }
+  if (exchange === "phemex") return { exchange: "phemex", sym: PHEMEX_MAP[key] || `${key}USDT`, key }
+  if (exchange === "nasdaq" || exchange === "nyse" || exchange === "amex") return { exchange: "yahoo", sym: key, key }
+
+  // Fallback: guess from type (backward compat for holdings without exchange field)
   // Crypto perps → Phemex
   if (isPerp && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
   if (isPerp && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
-  // If user marked as perp but not in map, try Phemex with guessed symbol
   if (isPerp) return { exchange: "phemex", sym: `${key}USDT`, key }
 
-  // Crypto spot → Coinbase (skip for equity type)
+  // Crypto spot → Coinbase
   if (type !== "equity" && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
   if (type !== "equity" && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
-  // If user marked as crypto_spot but not in map, try Coinbase with guessed symbol
   if (isSpot) return { exchange: "coinbase", sym: `${key}-USD`, key }
 
   // Equities → Yahoo Finance
   if (/^[A-Z]{1,5}$/.test(key)) return { exchange: "yahoo", sym: key, key }
 
-  console.warn(`[Resolve] no exchange for symbol="${symbol}" type="${type}" key="${key}"`)
+  console.warn(`[Resolve] no exchange for symbol="${symbol}" type="${type}" exchange="${exchange}" key="${key}"`)
   return null
 }
 
@@ -368,10 +374,10 @@ export async function fetchTickers(holdings) {
   const tasks = []
 
   for (const h of holdings) {
-    const resolved = resolveExchange(h.symbol, h.type)
+    const resolved = resolveExchange(h.symbol, h.type, h.exchange)
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
-    console.log(`[Ticker] ${h.symbol}(${h.type}) → ${resolved.exchange}:${resolved.sym}`)
+    console.log(`[Ticker] ${h.symbol}(${h.type}/${h.exchange || "auto"}) → ${resolved.exchange}:${resolved.sym}`)
 
     tasks.push((async () => {
       let data = null
@@ -406,8 +412,8 @@ export async function fetchAllKlines(requests) {
   console.log(`[Klines] ── Starting with ${requests.length} requests:`, requests.map(r => `${r.symbol}(${r.type})`).join(", "))
 
   for (const req of requests) {
-    const resolved = resolveExchange(req.symbol, req.type)
-    console.log(`[Klines] resolve ${req.symbol} (type=${req.type}) →`, resolved ? `${resolved.exchange}:${resolved.sym}` : "NULL")
+    const resolved = resolveExchange(req.symbol, req.type, req.exchange)
+    console.log(`[Klines] resolve ${req.symbol} (type=${req.type}, exchange=${req.exchange || "auto"}) →`, resolved ? `${resolved.exchange}:${resolved.sym}` : "NULL")
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
 
