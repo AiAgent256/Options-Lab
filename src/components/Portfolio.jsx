@@ -15,6 +15,16 @@ const ASSET_TYPES = [
   { value: "other", label: "Other" },
 ]
 
+// Exchange/Venue dropdown — determines both data routing and TradingView prefix
+const VENUES = [
+  { value: "coinbase", label: "Coinbase (Spot)", type: "crypto_spot", tvPrefix: "COINBASE", tvSuffix: "USD" },
+  { value: "phemex", label: "Phemex (Perp)", type: "crypto_perp", tvPrefix: "PHEMEX", tvSuffix: "USDT" },
+  { value: "nasdaq", label: "NASDAQ", type: "equity", tvPrefix: "NASDAQ" },
+  { value: "nyse", label: "NYSE", type: "equity", tvPrefix: "NYSE" },
+  { value: "amex", label: "AMEX / NYSE Arca", type: "equity", tvPrefix: "AMEX" },
+  { value: "other", label: "Other", type: "other" },
+]
+
 // TradingView symbol mappings for equities
 const EQUITY_TV_MAP = {
   MSTR: "NASDAQ:MSTR", COIN: "NASDAQ:COIN", MARA: "NASDAQ:MARA", RIOT: "NASDAQ:RIOT",
@@ -42,28 +52,21 @@ const TvMiniChart = memo(({ symbol, width = "100%", height = 160 }) => {
   useEffect(() => {
     if (!ref.current) return
     ref.current.innerHTML = ""
-    const outer = document.createElement("div")
-    outer.className = "tradingview-widget-container"
-    outer.style.height = "100%"
-    const widgetDiv = document.createElement("div")
-    widgetDiv.className = "tradingview-widget-container__widget"
-    widgetDiv.style.height = "100%"
-    outer.appendChild(widgetDiv)
+    const container = document.createElement("div")
+    container.className = "tradingview-widget-container__widget"
+    container.style.height = "100%"
+    ref.current.appendChild(container)
     const script = document.createElement("script")
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js"
     script.async = true
-    outer.appendChild(script)
-    const configScript = document.createElement("script")
-    configScript.type = "application/json"
-    configScript.textContent = JSON.stringify({
+    script.innerHTML = JSON.stringify({
       symbol, width: "100%", height, locale: "en", dateRange: "12M",
       colorTheme: "dark", isTransparent: true, autosize: false,
       largeChartUrl: "", noTimeScale: false, chartOnly: false,
       trendLineColor: "rgba(59, 130, 246, 0.6)", underLineColor: "rgba(59, 130, 246, 0.1)",
       underLineBottomColor: "rgba(59, 130, 246, 0)", backgroundColor: "rgba(0,0,0,0)",
     })
-    outer.appendChild(configScript)
-    ref.current.appendChild(outer)
+    ref.current.appendChild(script)
     return () => { if (ref.current) ref.current.innerHTML = "" }
   }, [symbol, height])
   return <div ref={ref} style={{ width, height, overflow: "hidden" }} />
@@ -142,12 +145,10 @@ export default function Portfolio({ onNavigateToChart }) {
     try { return parseFloat(localStorage.getItem("optlab:starting-capital")) || 0 } catch { return 0 }
   })
   const [editingCapital, setEditingCapital] = useState(false)
-  const [showSimulator, setShowSimulator] = useState(false)
-  const [targetPrices, setTargetPrices] = useState({}) // { [holdingId]: targetPrice }
 
   // New holding form state
   const [newHolding, setNewHolding] = useState({
-    symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0,
+    symbol: "", name: "", type: "crypto_spot", exchange: "coinbase", quantity: 0, costBasis: 0,
     leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "",
     status: "open", exitPrice: 0, exitDate: "",
   })
@@ -206,11 +207,11 @@ export default function Portfolio({ onNavigateToChart }) {
       if (seen.has(key)) return
       seen.add(key)
       const tradeStart = earliestDates[key] || rangeStart
-      requests.push({ symbol: h.symbol, type: h.type, startTime: Math.min(tradeStart, rangeStart) })
+      requests.push({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime: Math.min(tradeStart, rangeStart) })
     })
 
-    console.log(`[Portfolio] kline requests:`, requests.map(r => `${r.symbol}(${r.type})`))
-    console.log(`[Portfolio] trackedHoldings:`, trackedHoldings.map(h => `${h.symbol}(${h.type})`))
+    console.log(`[Portfolio] kline requests:`, requests.map(r => `${r.symbol}(${r.type}/${r.exchange || "auto"})`))
+    console.log(`[Portfolio] trackedHoldings:`, trackedHoldings.map(h => `${h.symbol}(${h.type}/${h.exchange || "auto"})`))
 
     fetchAllKlines(requests).then(data => {
       if (active) { setHistoricalData(data); setHistoryLoading(false) }
@@ -269,9 +270,16 @@ export default function Portfolio({ onNavigateToChart }) {
       const endDate = isClosed && h.exitDate ? new Date(h.exitDate) : new Date()
       const daysHeld = Math.max(0, Math.round((endDate.getTime() - tradeDate.getTime()) / 86400000))
 
-      // TradingView symbol — match the exchange we're actually getting data from
+      // TradingView symbol — use stored exchange if available, else guess from type
       let tvSymbol
-      if (h.type === "equity") {
+      const venue = h.exchange ? VENUES.find(v => v.value === h.exchange) : null
+      if (venue) {
+        if (venue.tvSuffix) {
+          tvSymbol = `${venue.tvPrefix}:${assetKey || h.symbol.toUpperCase()}${venue.tvSuffix}`
+        } else {
+          tvSymbol = `${venue.tvPrefix}:${h.symbol.toUpperCase()}`
+        }
+      } else if (h.type === "equity") {
         tvSymbol = EQUITY_TV_MAP[h.symbol.toUpperCase()] || h.symbol.toUpperCase()
       } else if (h.type === "crypto_perp") {
         tvSymbol = `PHEMEX:${assetKey}USDT`
@@ -324,42 +332,6 @@ export default function Portfolio({ onNavigateToChart }) {
 
     return { totalMargin, totalEquity, unrealizedPnl, realizedPnl, totalPnl, totalPnlPct, totalNotional, allocation, best, worst, openCount: openHoldings.length, closedCount: closedHoldings.length, cash, totalPortfolioValue }
   }, [enrichedHoldings, startingCapital])
-
-  // ─── PROJECTED PORTFOLIO (What-If Simulator) ──────────────────────────
-  const projectedPortfolio = useMemo(() => {
-    const openHoldings = enrichedHoldings.filter(h => !h.isClosed)
-    const rows = openHoldings.map(h => {
-      const targetPrice = targetPrices[h.id] || 0
-      const hasTarget = targetPrice > 0
-      const currentValue = h.equity
-      const currentPnl = h.pnl
-      const currentPnlPct = h.pnlPct
-      let projectedValue, projectedPnl, projectedPnlPct
-      if (hasTarget) {
-        if (h.isLeveraged) {
-          projectedPnl = (targetPrice - h.costBasis) * h.quantity * h.direction
-          projectedValue = h.margin + projectedPnl
-          projectedPnlPct = h.margin > 0 ? projectedPnl / h.margin : 0
-        } else {
-          projectedValue = h.quantity * targetPrice
-          projectedPnl = projectedValue - h.margin
-          projectedPnlPct = h.margin > 0 ? projectedPnl / h.margin : 0
-        }
-      } else {
-        projectedValue = currentValue
-        projectedPnl = currentPnl
-        projectedPnlPct = currentPnlPct
-      }
-      return { ...h, targetPrice, hasTarget, currentValue, currentPnl, currentPnlPct, projectedValue, projectedPnl, projectedPnlPct, deltaPnl: projectedPnl - currentPnl, deltaValue: projectedValue - currentValue }
-    })
-    const totalCurrentValue = rows.reduce((s, r) => s + r.currentValue, 0)
-    const totalCurrentPnl = rows.reduce((s, r) => s + r.currentPnl, 0)
-    const totalCurrentMargin = rows.reduce((s, r) => s + r.margin, 0)
-    const totalProjectedValue = rows.reduce((s, r) => s + r.projectedValue, 0)
-    const totalProjectedPnl = rows.reduce((s, r) => s + r.projectedPnl, 0)
-    const totalProjectedPnlPct = totalCurrentMargin > 0 ? totalProjectedPnl / totalCurrentMargin : 0
-    return { rows, totalCurrentValue, totalCurrentPnl, totalCurrentMargin, totalProjectedValue, totalProjectedPnl, totalProjectedPnlPct, totalDeltaPnl: totalProjectedPnl - totalCurrentPnl, totalDeltaValue: totalProjectedValue - totalCurrentValue }
-  }, [enrichedHoldings, targetPrices])
 
   // ─── HISTORICAL PORTFOLIO VALUE CHART ───────────────────────────────────
   const portfolioChart = useMemo(() => {
@@ -482,7 +454,7 @@ export default function Portfolio({ onNavigateToChart }) {
     if (!h.status) h.status = "open"
     setHoldings(prev => [...prev, h])
     setNextId(p => p + 1)
-    setNewHolding({ symbol: "", name: "", type: "crypto_spot", quantity: 0, costBasis: 0, leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "", status: "open", exitPrice: 0, exitDate: "" })
+    setNewHolding({ symbol: "", name: "", type: "crypto_spot", exchange: "coinbase", quantity: 0, costBasis: 0, leverage: 1, margin: 0, direction: 1, tradeDate: new Date().toISOString().split("T")[0], notes: "", status: "open", exitPrice: 0, exitDate: "" })
     setShowAddForm(false)
   }
 
@@ -607,7 +579,14 @@ export default function Portfolio({ onNavigateToChart }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
             <div>
               <div className="pf-label">Symbol</div>
-              <input className="pf-input" type="text" placeholder="BTC, MSTR, CC, etc." value={newHolding.symbol}
+              <input className="pf-input" type="text" placeholder={
+                newHolding.exchange === "coinbase" ? "BTC, ETH, ZRO, SOL…" :
+                newHolding.exchange === "phemex" ? "BTC, CC, HYPE…" :
+                newHolding.exchange === "nasdaq" ? "MSTR, AAPL, NVDA…" :
+                newHolding.exchange === "nyse" ? "SMR, COIN…" :
+                newHolding.exchange === "amex" ? "SPY, QQQ…" :
+                "Symbol"
+              } value={newHolding.symbol}
                 onChange={e => setNewHolding(p => ({ ...p, symbol: e.target.value }))} />
             </div>
             <div>
@@ -616,9 +595,12 @@ export default function Portfolio({ onNavigateToChart }) {
                 onChange={e => setNewHolding(p => ({ ...p, name: e.target.value }))} />
             </div>
             <div>
-              <div className="pf-label">Type</div>
-              <select className="pf-input" value={newHolding.type} onChange={e => setNewHolding(p => ({ ...p, type: e.target.value }))}>
-                {ASSET_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              <div className="pf-label">Exchange / Venue</div>
+              <select className="pf-input" value={newHolding.exchange || "coinbase"} onChange={e => {
+                const venue = VENUES.find(v => v.value === e.target.value)
+                setNewHolding(p => ({ ...p, exchange: e.target.value, type: venue ? venue.type : p.type }))
+              }}>
+                {VENUES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
               </select>
             </div>
             {(newHolding.type === "crypto_perp" || newHolding.type === "option_short") && (
@@ -908,7 +890,7 @@ export default function Portfolio({ onNavigateToChart }) {
                       <span style={{ fontSize: 16, fontWeight: 700, color: "#e0e4ec" }}>{h.symbol}</span>
                       {h.name && <span style={{ fontSize: 11, color: "#4a5060" }}>{h.name}</span>}
                       <span style={{ fontSize: 8, padding: "1px 6px", borderRadius: 3, background: h.type.includes("crypto") ? "#f59e0b15" : "#3b82f615", color: h.type.includes("crypto") ? "#f59e0b" : "#3b82f6" }}>
-                        {ASSET_TYPES.find(t => t.value === h.type)?.label || h.type}
+                        {h.exchange ? (VENUES.find(v => v.value === h.exchange)?.label || h.exchange) : (ASSET_TYPES.find(t => t.value === h.type)?.label || h.type)}
                       </span>
                       {h.leverage > 1 && (
                         <span style={{ fontSize: 8, padding: "1px 6px", borderRadius: 3, background: "#ef444415", color: "#ef4444", fontWeight: 600 }}>
@@ -946,6 +928,8 @@ export default function Portfolio({ onNavigateToChart }) {
                 {/* Inline edit */}
                 {isEditing && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 10, padding: 10, background: "#0a0c10", borderRadius: 6 }}>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Symbol</div><input className="pf-input" type="text" value={h.symbol} onChange={e => updateHolding(h.id, "symbol", e.target.value.toUpperCase())} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
+                    <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Exchange</div><select className="pf-input" value={h.exchange || ""} onChange={e => { const v = VENUES.find(v => v.value === e.target.value); updateHolding(h.id, "exchange", e.target.value); if (v) updateHolding(h.id, "type", v.type); }} style={{ fontSize: 11, padding: "4px 6px" }}><option value="">Auto</option>{VENUES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}</select></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Qty (tokens)</div><input className="pf-input" type="number" step="any" value={h.quantity} onChange={e => updateHolding(h.id, "quantity", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Entry Price</div><input className="pf-input" type="number" step="any" value={h.costBasis} onChange={e => updateHolding(h.id, "costBasis", parseFloat(e.target.value) || 0)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
                     <div><div style={{ fontSize: 8, color: "#4a5060", marginBottom: 2 }}>Leverage</div><input className="pf-input" type="number" step="0.5" min="1" value={h.leverage} onChange={e => updateHolding(h.id, "leverage", parseFloat(e.target.value) || 1)} style={{ fontSize: 11, padding: "4px 6px" }} /></div>
@@ -1133,167 +1117,6 @@ export default function Portfolio({ onNavigateToChart }) {
               </div>
             )
           })}
-        </div>
-      )}
-
-      {/* ─── CURRENT POSITIONS SUMMARY TABLE ─── */}
-      {enrichedHoldings.some(h => !h.isClosed) && (
-        <div style={{ marginTop: 24, marginBottom: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-            <span>Current Positions</span>
-            <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: "#3b82f615", color: "#3b82f6" }}>
-              {enrichedHoldings.filter(h => !h.isClosed).length} open
-            </span>
-          </div>
-          <div className="pf-card" style={{ borderTop: "2px solid #3b82f640" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table className="pf-table">
-                <thead><tr>
-                  <th style={{ textAlign: "left" }}>Asset</th>
-                  <th>Type</th>
-                  <th>Qty</th>
-                  <th>Entry</th>
-                  <th>Current</th>
-                  <th>Margin / Cost</th>
-                  <th>Equity</th>
-                  <th>P&L ($)</th>
-                  <th>P&L (%)</th>
-                  <th>Days</th>
-                </tr></thead>
-                <tbody>
-                  {enrichedHoldings.filter(h => !h.isClosed).map(h => (
-                    <tr key={h.id}>
-                      <td style={{ textAlign: "left" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: h.color }} />
-                          <span style={{ fontWeight: 600, color: "#e0e4ec" }}>{h.symbol}</span>
-                          {h.name && <span style={{ color: "#4a5060", fontSize: 10 }}>{h.name}</span>}
-                        </div>
-                      </td>
-                      <td style={{ fontSize: 10 }}>
-                        {h.type === "crypto_perp" ? <span>{h.leverage}× {h.direction === 1 ? "L" : "S"}</span> : h.type.includes("crypto") ? "Spot" : h.type.includes("option") ? "Option" : "Equity"}
-                      </td>
-                      <td>{h.quantity.toLocaleString()}</td>
-                      <td>{fmtDollar(h.costBasis)}</td>
-                      <td style={{ fontWeight: 600 }}>{fmtDollar(h.currentPrice)}</td>
-                      <td>{fmtDollar(h.margin)}</td>
-                      <td style={{ fontWeight: 600, color: h.equity >= h.margin ? "#22c55e" : "#ef4444" }}>{fmtDollar(h.equity)}</td>
-                      <td style={{ color: h.pnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(h.pnl)}</td>
-                      <td style={{ color: h.pnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(h.pnlPct)}</td>
-                      <td>{h.daysHeld}d</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: "2px solid #1e2330" }}>
-                    <td style={{ textAlign: "left", fontWeight: 700, color: "#e0e4ec" }} colSpan={5}>Total (Open)</td>
-                    <td style={{ fontWeight: 600 }}>{fmtDollar(portfolio.totalMargin)}</td>
-                    <td style={{ fontWeight: 700, color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtDollar(portfolio.totalEquity)}</td>
-                    <td style={{ fontWeight: 700, color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(portfolio.unrealizedPnl)}</td>
-                    <td style={{ fontWeight: 600, color: portfolio.unrealizedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(portfolio.totalMargin > 0 ? portfolio.unrealizedPnl / portfolio.totalMargin : 0)}</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── PORTFOLIO SIMULATOR (What-If Analysis) ─── */}
-      {enrichedHoldings.some(h => !h.isClosed) && (
-        <div style={{ marginTop: 24, marginBottom: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1.5px", color: "#5a6070", marginBottom: 10, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setShowSimulator(!showSimulator)}>
-            <span style={{ color: "#8b5cf6" }}>{showSimulator ? "▾" : "▸"}</span>
-            <span>Portfolio Simulator</span>
-            <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, background: "#8b5cf615", color: "#8b5cf6" }}>What-If Analysis</span>
-          </div>
-          {showSimulator && (
-            <div className="pf-card" style={{ borderTop: "2px solid #8b5cf640" }}>
-              {/* Summary metrics */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-                <div style={{ padding: "8px 12px", background: "#0a0c10", borderRadius: 6 }}>
-                  <div style={{ fontSize: 8, color: "#4a5060", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>Current Portfolio</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#e0e4ec" }}>{fmtDollar(projectedPortfolio.totalCurrentValue)}</div>
-                  <div style={{ fontSize: 10, marginTop: 2, color: projectedPortfolio.totalCurrentPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalCurrentPnl)}</div>
-                </div>
-                <div style={{ padding: "8px 12px", background: "#0a0c10", borderRadius: 6, borderLeft: "3px solid #8b5cf6" }}>
-                  <div style={{ fontSize: 8, color: "#4a5060", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>Projected Portfolio</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#8b5cf6" }}>{fmtDollar(projectedPortfolio.totalProjectedValue)}</div>
-                  <div style={{ fontSize: 10, marginTop: 2, color: projectedPortfolio.totalProjectedPnl >= 0 ? "#22c55e" : "#ef4444" }}>
-                    {fmtPnl(projectedPortfolio.totalProjectedPnl)} ({fmtPct(projectedPortfolio.totalProjectedPnlPct)})
-                  </div>
-                </div>
-                <div style={{ padding: "8px 12px", background: "#0a0c10", borderRadius: 6 }}>
-                  <div style={{ fontSize: 8, color: "#4a5060", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>Delta (Change)</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: projectedPortfolio.totalDeltaPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalDeltaPnl)}</div>
-                  <div style={{ fontSize: 10, marginTop: 2, color: projectedPortfolio.totalDeltaValue >= 0 ? "#22c55e80" : "#ef444480" }}>
-                    {projectedPortfolio.totalDeltaValue >= 0 ? "+" : ""}{fmtDollar(projectedPortfolio.totalDeltaValue)} in equity
-                  </div>
-                </div>
-              </div>
-
-              {/* Target price table */}
-              <div style={{ overflowX: "auto" }}>
-                <table className="pf-table">
-                  <thead><tr>
-                    <th style={{ textAlign: "left" }}>Asset</th>
-                    <th>Qty</th>
-                    <th>Entry</th>
-                    <th>Current</th>
-                    <th>Current P&L</th>
-                    <th style={{ color: "#8b5cf6" }}>Target Price</th>
-                    <th style={{ color: "#8b5cf6" }}>Projected Value</th>
-                    <th style={{ color: "#8b5cf6" }}>Projected P&L</th>
-                    <th style={{ color: "#8b5cf6" }}>Projected %</th>
-                    <th>Delta</th>
-                  </tr></thead>
-                  <tbody>
-                    {projectedPortfolio.rows.map(r => (
-                      <tr key={r.id}>
-                        <td style={{ textAlign: "left" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: 2, background: r.color }} />
-                            <span style={{ fontWeight: 600, color: "#e0e4ec" }}>{r.symbol}</span>
-                            {r.isLeveraged && <span style={{ fontSize: 8, color: "#f59e0b" }}>{r.leverage}×{r.direction === 1 ? "L" : "S"}</span>}
-                          </div>
-                        </td>
-                        <td>{r.quantity.toLocaleString()}</td>
-                        <td>{fmtDollar(r.costBasis)}</td>
-                        <td>{fmtDollar(r.currentPrice)}</td>
-                        <td style={{ color: r.currentPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(r.currentPnl)}</td>
-                        <td>
-                          <input className="pf-input" type="number" step="any" placeholder={r.currentPrice?.toFixed(2) || "0"}
-                            value={targetPrices[r.id] || ""} onChange={e => setTargetPrices(prev => ({ ...prev, [r.id]: parseFloat(e.target.value) || 0 }))}
-                            style={{ fontSize: 11, padding: "4px 8px", width: 100, borderColor: r.hasTarget ? "#8b5cf640" : undefined, background: r.hasTarget ? "#8b5cf608" : undefined }} />
-                        </td>
-                        <td style={{ fontWeight: 600, color: r.hasTarget ? "#8b5cf6" : "#5a6070" }}>{r.hasTarget ? fmtDollar(r.projectedValue) : "—"}</td>
-                        <td style={{ fontWeight: 600, color: r.hasTarget ? (r.projectedPnl >= 0 ? "#22c55e" : "#ef4444") : "#5a6070" }}>{r.hasTarget ? fmtPnl(r.projectedPnl) : "—"}</td>
-                        <td style={{ color: r.hasTarget ? (r.projectedPnlPct >= 0 ? "#22c55e" : "#ef4444") : "#5a6070" }}>{r.hasTarget ? fmtPct(r.projectedPnlPct) : "—"}</td>
-                        <td style={{ fontSize: 10, color: r.hasTarget ? (r.deltaPnl >= 0 ? "#22c55e" : "#ef4444") : "#3a4050" }}>{r.hasTarget ? fmtPnl(r.deltaPnl) : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ borderTop: "2px solid #1e2330" }}>
-                      <td style={{ textAlign: "left", fontWeight: 700, color: "#8b5cf6" }} colSpan={4}>Totals</td>
-                      <td style={{ color: projectedPortfolio.totalCurrentPnl >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{fmtPnl(projectedPortfolio.totalCurrentPnl)}</td>
-                      <td></td>
-                      <td style={{ fontWeight: 700, color: "#8b5cf6" }}>{fmtDollar(projectedPortfolio.totalProjectedValue)}</td>
-                      <td style={{ fontWeight: 700, color: projectedPortfolio.totalProjectedPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalProjectedPnl)}</td>
-                      <td style={{ fontWeight: 600, color: projectedPortfolio.totalProjectedPnlPct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(projectedPortfolio.totalProjectedPnlPct)}</td>
-                      <td style={{ fontWeight: 600, color: projectedPortfolio.totalDeltaPnl >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPnl(projectedPortfolio.totalDeltaPnl)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-              <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
-                <button className="pf-btn" style={{ fontSize: 10, padding: "4px 12px", color: "#8b5cf6", borderColor: "#8b5cf640" }} onClick={() => setTargetPrices({})}>
-                  Reset All Targets
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
