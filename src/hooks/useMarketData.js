@@ -28,7 +28,7 @@ const SYMBOL_ALIASES = {
 // ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
 // Known-good product IDs on each exchange's API.
 // If a symbol is NOT here, we still try the standard format,
-// then fall back to Yahoo Finance if the exchange 404s.
+// then fall back to CoinGecko (crypto) or Yahoo Finance (equities) if the exchange 404s.
 
 const COINBASE_MAP = {
   BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", DOGE: "DOGE-USD",
@@ -50,30 +50,67 @@ const PHEMEX_MAP = {
   CC: "CCUSDT", PEPE: "1000PEPEUSDT", ZRO: "ZROUSDT",
 }
 
-// Yahoo Finance uses non-standard tickers for many newer crypto.
-// ZRO-USD on Yahoo is actually "Carb0n.fi", not LayerZero.
-// This map overrides the default TICKER-USD pattern for Yahoo crypto fallback.
-const YAHOO_CRYPTO_MAP = {
-  ZRO: "ZRO26997-USD",
-  SUI: "SUI20947-USD",
-  TIA: "TIA22861-USD",
-  SEI: "SEI-USD",
-  ARB: "ARB11841-USD",
-  OP: "OP-USD",
-  INJ: "INJ-USD",
-  APT: "APT21794-USD",
-  HYPE: "HYPE32196-USD",
-  FET: "FET-USD",
-  RENDER: "RENDER-USD",
-  WIF: "WIF-USD",
-  TAO: "TAO22974-USD",
-  CC: null,  // Not on Yahoo
+// ─── COINGECKO FALLBACK ────────────────────────────────────────────────────
+// CoinGecko free API: no auth, ~30 req/min, comprehensive crypto coverage.
+// Used as fallback when Coinbase Exchange API / Phemex don't list a token.
+// Map: ticker symbol → CoinGecko coin ID
+const COINGECKO_ID_MAP = {
+  BTC: "bitcoin", ETH: "ethereum", SOL: "solana", DOGE: "dogecoin",
+  XRP: "ripple", ADA: "cardano", AVAX: "avalanche-2", DOT: "polkadot",
+  LINK: "chainlink", NEAR: "near", SUI: "sui", APT: "aptos",
+  ARB: "arbitrum", OP: "optimism", MATIC: "matic-network", SEI: "sei-network",
+  INJ: "injective-protocol", TIA: "celestia", RENDER: "render-token",
+  FET: "artificial-superintelligence-alliance", HYPE: "hyperliquid",
+  WIF: "dogwifcoin", TAO: "bittensor",
+  ZRO: "layerzero", PEPE: "pepe",
+  ATOM: "cosmos", UNI: "uniswap", LTC: "litecoin",
 }
 
-// Get Yahoo ticker for a crypto symbol (fallback when Coinbase/Phemex 404)
-function yahooTickerForCrypto(key) {
-  if (key in YAHOO_CRYPTO_MAP) return YAHOO_CRYPTO_MAP[key]
-  return `${key}-USD`  // Default: BTC → BTC-USD, ETH → ETH-USD, etc.
+function coingeckoId(key) {
+  return COINGECKO_ID_MAP[key] || key.toLowerCase()
+}
+
+async function coingeckoQuote(key) {
+  const id = coingeckoId(key)
+  try {
+    const url = `/api/coingecko/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`
+    console.log(`[CG] quote ${key} → ${id}`)
+    const res = await fetch(url)
+    if (!res.ok) { console.warn(`[CG] quote ${key} → ${res.status}`); return null }
+    const data = await res.json()
+    const entry = data[id]
+    if (!entry || !entry.usd) { console.warn(`[CG] quote ${key}: no data`); return null }
+    console.log(`[CG] quote ${key}: $${entry.usd} (${(entry.usd_24h_change || 0).toFixed(2)}%)`)
+    return { price: entry.usd, change: entry.usd_24h_change || 0 }
+  } catch (e) { console.warn(`[CG] quote err:`, e.message); return null }
+}
+
+async function coingeckoKlines(key, startTimeMs) {
+  const id = coingeckoId(key)
+  const days = Math.ceil((Date.now() - startTimeMs) / (1000 * 60 * 60 * 24))
+  try {
+    // CoinGecko: days <= 90 → hourly granularity, > 90 → daily
+    const url = `/api/coingecko/coins/${id}/market_chart?vs_currency=usd&days=${Math.min(days, 365)}`
+    console.log(`[CG] klines ${key} → ${id} (${days}d)`)
+    const res = await fetch(url)
+    if (!res.ok) { console.warn(`[CG] klines ${key} → ${res.status}`); return [] }
+    const data = await res.json()
+    const prices = data.prices || []
+    if (prices.length === 0) { console.warn(`[CG] klines ${key}: no prices`); return [] }
+
+    console.log(`[CG] klines ${key}: ${prices.length} raw points`)
+
+    // Group into 4h buckets (same approach as Yahoo)
+    const by4h = {}
+    for (const [ts, close] of prices) {
+      if (!close || close <= 0) continue
+      const bucket = Math.floor(ts / (4 * 3600 * 1000)) * (4 * 3600 * 1000)
+      by4h[bucket] = { ts: bucket, date: new Date(bucket).toISOString().slice(0, 13), close }
+    }
+    const klines = Object.values(by4h).sort((a, b) => a.ts - b.ts)
+    console.log(`[CG] klines ${key}: ${klines.length} 4h bars`)
+    return klines
+  } catch (e) { console.warn(`[CG] klines err:`, e.message); return [] }
 }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -432,28 +469,18 @@ export async function fetchTickers(holdings) {
         if (data) {
           data.change = await coinbase24h(resolved.sym)
         } else {
-          // FALLBACK: Coinbase Exchange API doesn't have this product.
-          const yahooSym = yahooTickerForCrypto(resolved.key)
-          if (yahooSym) {
-            console.log(`[Ticker] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
-            data = await yahooQuote(yahooSym)
-            if (data) console.log(`[Ticker] ${resolved.key}: ✅ Yahoo fallback: $${data.price}`)
-          } else {
-            console.warn(`[Ticker] ${resolved.key}: CB failed, no Yahoo mapping`)
-          }
+          // FALLBACK: Coinbase Exchange API doesn't have this product → CoinGecko
+          console.log(`[Ticker] ${resolved.key}: CB failed, trying CoinGecko`)
+          data = await coingeckoQuote(resolved.key)
+          if (data) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko fallback: $${data.price}`)
         }
       } else if (resolved.exchange === "phemex") {
         data = await phemexTicker(resolved.sym)
         if (!data) {
-          // FALLBACK: Phemex doesn't have this product.
-          const yahooSym = yahooTickerForCrypto(resolved.key)
-          if (yahooSym) {
-            console.log(`[Ticker] ${resolved.key}: PH failed, trying Yahoo ${yahooSym}`)
-            data = await yahooQuote(yahooSym)
-            if (data) console.log(`[Ticker] ${resolved.key}: ✅ Yahoo fallback: $${data.price}`)
-          } else {
-            console.warn(`[Ticker] ${resolved.key}: PH failed, no Yahoo mapping`)
-          }
+          // FALLBACK: Phemex doesn't have this product → CoinGecko
+          console.log(`[Ticker] ${resolved.key}: PH failed, trying CoinGecko`)
+          data = await coingeckoQuote(resolved.key)
+          if (data) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko fallback: $${data.price}`)
         }
       } else if (resolved.exchange === "yahoo") {
         data = await yahooQuote(resolved.sym)
@@ -492,25 +519,19 @@ export async function fetchAllKlines(requests) {
       if (resolved.exchange === "coinbase") {
         klines = await coinbaseCandles(resolved.sym, req.startTime)
         if (klines.length === 0) {
-          // FALLBACK: Coinbase Exchange API doesn't have this product.
-          const yahooSym = yahooTickerForCrypto(resolved.key)
-          if (yahooSym) {
-            console.log(`[Klines] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
-            klines = await yahooKlines(yahooSym, req.startTime)
-            if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ Yahoo fallback: ${klines.length} bars`)
-          }
+          // FALLBACK: Coinbase Exchange API doesn't have this product → CoinGecko
+          console.log(`[Klines] ${resolved.key}: CB failed, trying CoinGecko`)
+          klines = await coingeckoKlines(resolved.key, req.startTime)
+          if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
         }
       } else if (resolved.exchange === "phemex") {
         const ticker = await phemexTicker(resolved.sym)
         klines = await phemexKlines(resolved.sym, req.startTime, ticker?.price || 0)
         if (klines.length === 0) {
-          // FALLBACK: Phemex doesn't have this product.
-          const yahooSym = yahooTickerForCrypto(resolved.key)
-          if (yahooSym) {
-            console.log(`[Klines] ${resolved.key}: PH failed, trying Yahoo ${yahooSym}`)
-            klines = await yahooKlines(yahooSym, req.startTime)
-            if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ Yahoo fallback: ${klines.length} bars`)
-          }
+          // FALLBACK: Phemex doesn't have this product → CoinGecko
+          console.log(`[Klines] ${resolved.key}: PH failed, trying CoinGecko`)
+          klines = await coingeckoKlines(resolved.key, req.startTime)
+          if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
         }
       } else if (resolved.exchange === "yahoo") {
         klines = await yahooKlines(resolved.sym, req.startTime)
