@@ -12,7 +12,23 @@
  * All requests proxy through Vite dev server to avoid CORS.
  */
 
+// ─── SYMBOL ALIASES ────────────────────────────────────────────────────────
+// Map common names / misspellings / full names → canonical tickers
+const SYMBOL_ALIASES = {
+  LAYERZERO: "ZRO", BITCOIN: "BTC", ETHEREUM: "ETH", SOLANA: "SOL",
+  DOGECOIN: "DOGE", RIPPLE: "XRP", CARDANO: "ADA", POLKADOT: "DOT",
+  CHAINLINK: "LINK", AVALANCHE: "AVAX", COSMOS: "ATOM", POLYGON: "MATIC",
+  ARBITRUM: "ARB", OPTIMISM: "OP", CELESTIA: "TIA", INJECTIVE: "INJ",
+  RENDERTOKEN: "RENDER", HYPERLIQUID: "HYPE", APTOS: "APT",
+  LITECOIN: "LTC", UNISWAP: "UNI",
+  MICROSTRATEGY: "MSTR", STRATEGY: "MSTR", TESLA: "TSLA", APPLE: "AAPL",
+  NVIDIA: "NVDA", NUSCALE: "SMR",
+}
+
 // ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
+// Known-good product IDs on each exchange's API.
+// If a symbol is NOT here, we still try the standard format,
+// then fall back to Yahoo Finance if the exchange 404s.
 
 const COINBASE_MAP = {
   BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", DOGE: "DOGE-USD",
@@ -20,7 +36,8 @@ const COINBASE_MAP = {
   LINK: "LINK-USD", NEAR: "NEAR-USD", SUI: "SUI-USD", APT: "APT-USD",
   ARB: "ARB-USD", OP: "OP-USD", MATIC: "MATIC-USD", SEI: "SEI-USD",
   INJ: "INJ-USD", TIA: "TIA-USD", RENDER: "RENDER-USD",
-  FET: "FET-USD", HYPE: "HYPE-USD", ZRO: "ZRO-USD",
+  FET: "FET-USD", HYPE: "HYPE-USD",
+  // NOTE: ZRO removed — it's on Coinbase retail but NOT on their Exchange API
 }
 
 const PHEMEX_MAP = {
@@ -36,13 +53,15 @@ const PHEMEX_MAP = {
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
 export function normalizeSymbol(symbol) {
-  return symbol.toUpperCase()
-    .replace(/[:/]/g, "")              // strip separators (ZRO:USDT → ZROUSDT, ZRO/USD → ZROUSD)
+  let s = symbol.toUpperCase()
+    .replace(/[:/\-]/g, "")            // strip separators (ZRO:USDT, ZRO/USD, ZRO-USD)
     .replace(/USDT$/, "")              // strip trailing USDT
     .replace(/USDC$/, "")              // strip trailing USDC
     .replace(/USD$/, "")               // strip trailing USD
     .replace(/PERP$/, "")              // strip trailing PERP
     .trim()
+  // Apply aliases: LAYERZERO → ZRO, BITCOIN → BTC, etc.
+  return SYMBOL_ALIASES[s] || s
 }
 
 export function isCryptoSymbol(symbol) {
@@ -384,7 +403,16 @@ export async function fetchTickers(holdings) {
 
       if (resolved.exchange === "coinbase") {
         data = await coinbaseTicker(resolved.sym)
-        if (data) data.change = await coinbase24h(resolved.sym)
+        if (data) {
+          data.change = await coinbase24h(resolved.sym)
+        } else {
+          // FALLBACK: Coinbase Exchange API doesn't have this product.
+          // Try Yahoo Finance with TICKER-USD format (covers most crypto).
+          const yahooSym = `${resolved.key}-USD`
+          console.log(`[Ticker] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
+          data = await yahooQuote(yahooSym)
+          if (data) console.log(`[Ticker] ${resolved.key}: ✅ Yahoo fallback: $${data.price}`)
+        }
       } else if (resolved.exchange === "phemex") {
         data = await phemexTicker(resolved.sym)
       } else if (resolved.exchange === "yahoo") {
@@ -423,6 +451,13 @@ export async function fetchAllKlines(requests) {
 
       if (resolved.exchange === "coinbase") {
         klines = await coinbaseCandles(resolved.sym, req.startTime)
+        if (klines.length === 0) {
+          // FALLBACK: Coinbase Exchange API doesn't have this product.
+          const yahooSym = `${resolved.key}-USD`
+          console.log(`[Klines] ${resolved.key}: CB failed, trying Yahoo ${yahooSym}`)
+          klines = await yahooKlines(yahooSym, req.startTime)
+          if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ Yahoo fallback: ${klines.length} bars`)
+        }
       } else if (resolved.exchange === "phemex") {
         const ticker = await phemexTicker(resolved.sym)
         klines = await phemexKlines(resolved.sym, req.startTime, ticker?.price || 0)
