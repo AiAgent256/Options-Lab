@@ -1,20 +1,27 @@
 // Vercel serverless function — proxy to CoinGecko API
 // Handles: /api/coingecko/* -> https://api.coingecko.com/api/v3/*
 //
-// CoinGecko now requires an API key even for the free (Demo) tier.
+// CoinGecko requires an API key even for the free (Demo) tier.
 // Set COINGECKO_API_KEY in Vercel Environment Variables.
 // Get a free key at: https://www.coingecko.com/en/api/pricing
 
 export default async function handler(req, res) {
-  const { path } = req.query
-  const upstreamPath = Array.isArray(path) ? path.join("/") : (path || "")
+  // Parse path from req.url directly — Vercel legacy routes don't inject
+  // [...path] into req.query. req.url = "/api/coingecko/simple/price?ids=bitcoin"
+  const rawUrl = req.url || ''
+  const qIdx = rawUrl.indexOf('?')
+  const pathPart = qIdx >= 0 ? rawUrl.slice(0, qIdx) : rawUrl
+  const upstreamPath = pathPart.replace(/^\/api\/coingecko\/?/, '')
 
   const url = new URL(`https://api.coingecko.com/api/v3/${upstreamPath}`)
-  Object.entries(req.query).forEach(([key, value]) => {
-    if (key !== "path") url.searchParams.set(key, value)
+
+  // Copy query params from original request
+  const queryParams = new URLSearchParams(qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '')
+  queryParams.forEach((value, key) => {
+    if (key !== 'path') url.searchParams.set(key, value)
   })
 
-  // Build headers — include demo API key if available
+  // Include demo API key if set
   const headers = { "Accept": "application/json" }
   const apiKey = process.env.COINGECKO_API_KEY
   if (apiKey) {
@@ -28,7 +35,7 @@ export default async function handler(req, res) {
     })
     const data = await upstream.text()
     res.setHeader("Access-Control-Allow-Origin", "*")
-    // Cache for 30s, stale for 60s — CoinGecko free tier: 30 req/min, 10k/month
+    // Cache 30s, stale 60s — CoinGecko free tier: 30 req/min, 10k/month
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60")
     res.status(upstream.status).send(data)
   } catch (err) {
