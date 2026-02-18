@@ -74,15 +74,15 @@ async function coingeckoQuote(key) {
   const id = coingeckoId(key)
   try {
     const url = `/api/coingecko/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`
-    console.log(`[CG] quote ${key} → ${id}`)
+    if(import.meta.env.DEV) console.log(`[CG] quote ${key} → ${id}`)
     const res = await fetch(url)
-    if (!res.ok) { console.warn(`[CG] quote ${key} → ${res.status}`); return null }
+    if (!res.ok) { if(import.meta.env.DEV) console.warn(`[CG] quote ${key} → ${res.status}`); return null }
     const data = await res.json()
     const entry = data[id]
-    if (!entry || !entry.usd) { console.warn(`[CG] quote ${key}: no data`); return null }
-    console.log(`[CG] quote ${key}: $${entry.usd} (${(entry.usd_24h_change || 0).toFixed(2)}%)`)
+    if (!entry || !entry.usd) { if(import.meta.env.DEV) console.warn(`[CG] quote ${key}: no data`); return null }
+    if(import.meta.env.DEV) console.log(`[CG] quote ${key}: $${entry.usd} (${(entry.usd_24h_change || 0).toFixed(2)}%)`)
     return { price: entry.usd, change: entry.usd_24h_change || 0 }
-  } catch (e) { console.warn(`[CG] quote err:`, e.message); return null }
+  } catch (e) { if(import.meta.env.DEV) console.warn(`[CG] quote err:`, e.message); return null }
 }
 
 async function coingeckoKlines(key, startTimeMs) {
@@ -91,14 +91,14 @@ async function coingeckoKlines(key, startTimeMs) {
   try {
     // CoinGecko: days <= 90 → hourly granularity, > 90 → daily
     const url = `/api/coingecko/coins/${id}/market_chart?vs_currency=usd&days=${Math.min(days, 365)}`
-    console.log(`[CG] klines ${key} → ${id} (${days}d)`)
+    if(import.meta.env.DEV) console.log(`[CG] klines ${key} → ${id} (${days}d)`)
     const res = await fetch(url)
-    if (!res.ok) { console.warn(`[CG] klines ${key} → ${res.status}`); return [] }
+    if (!res.ok) { if(import.meta.env.DEV) console.warn(`[CG] klines ${key} → ${res.status}`); return [] }
     const data = await res.json()
     const prices = data.prices || []
-    if (prices.length === 0) { console.warn(`[CG] klines ${key}: no prices`); return [] }
+    if (prices.length === 0) { if(import.meta.env.DEV) console.warn(`[CG] klines ${key}: no prices`); return [] }
 
-    console.log(`[CG] klines ${key}: ${prices.length} raw points`)
+    if(import.meta.env.DEV) console.log(`[CG] klines ${key}: ${prices.length} raw points`)
 
     // Group into 4h buckets (same approach as Yahoo)
     const by4h = {}
@@ -108,9 +108,9 @@ async function coingeckoKlines(key, startTimeMs) {
       by4h[bucket] = { ts: bucket, date: new Date(bucket).toISOString().slice(0, 13), close }
     }
     const klines = Object.values(by4h).sort((a, b) => a.ts - b.ts)
-    console.log(`[CG] klines ${key}: ${klines.length} 4h bars`)
+    if(import.meta.env.DEV) console.log(`[CG] klines ${key}: ${klines.length} 4h bars`)
     return klines
-  } catch (e) { console.warn(`[CG] klines err:`, e.message); return [] }
+  } catch (e) { if(import.meta.env.DEV) console.warn(`[CG] klines err:`, e.message); return [] }
 }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ function resolveExchange(symbol, type, exchange) {
   // Equities → Yahoo Finance
   if (/^[A-Z]{1,5}$/.test(key)) return { exchange: "yahoo", sym: key, key }
 
-  console.warn(`[Resolve] no exchange for symbol="${symbol}" type="${type}" exchange="${exchange}" key="${key}"`)
+  if(import.meta.env.DEV) console.warn(`[Resolve] no exchange for symbol="${symbol}" type="${type}" exchange="${exchange}" key="${key}"`)
   return null
 }
 
@@ -188,10 +188,10 @@ function resolveExchange(symbol, type, exchange) {
 async function coinbaseTicker(cbSymbol) {
   try {
     const res = await fetch(`/api/coinbase/products/${cbSymbol}/ticker`)
-    if (!res.ok) { console.warn(`[CB] ticker ${cbSymbol} → ${res.status}`); return null }
+    if (!res.ok) { if(import.meta.env.DEV) console.warn(`[CB] ticker ${cbSymbol} → ${res.status}`); return null }
     const data = await res.json()
     return { price: parseFloat(data.price) || 0, change: 0 }
-  } catch (e) { console.warn(`[CB] ticker err:`, e.message); return null }
+  } catch (e) { if(import.meta.env.DEV) console.warn(`[CB] ticker err:`, e.message); return null }
 }
 
 async function coinbase24h(cbSymbol) {
@@ -206,7 +206,7 @@ async function coinbase24h(cbSymbol) {
 
 // Coinbase candles — 1h (3600s), grouped into 4h client-side
 async function coinbaseCandles(cbSymbol, startTimeMs) {
-  console.log(`[CB] candles 1h ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+  if(import.meta.env.DEV) console.log(`[CB] candles 1h ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   const results = []
   const granularity = 3600
   let endSec = Math.floor(Date.now() / 1000)
@@ -220,17 +220,17 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
       const startISO = new Date(batchStart * 1000).toISOString()
       const endISO = new Date(endSec * 1000).toISOString()
       const url = `/api/coinbase/products/${cbSymbol}/candles?granularity=${granularity}&start=${startISO}&end=${endISO}`
-      console.log(`[CB] batch ${batch}: ${startISO.slice(0, 16)} → ${endISO.slice(0, 16)}`)
+      if(import.meta.env.DEV) console.log(`[CB] batch ${batch}: ${startISO.slice(0, 16)} → ${endISO.slice(0, 16)}`)
       const res = await fetch(url)
       if (!res.ok) {
         const body = await res.text().catch(() => "")
-        console.warn(`[CB] candles ${cbSymbol} batch ${batch} → ${res.status}`, body.slice(0, 200))
+        if(import.meta.env.DEV) console.warn(`[CB] candles ${cbSymbol} batch ${batch} → ${res.status}`, body.slice(0, 200))
         break
       }
       const data = await res.json()
-      if (!Array.isArray(data) || data.length === 0) { console.log(`[CB] batch ${batch}: empty`); break }
+      if (!Array.isArray(data) || data.length === 0) { if(import.meta.env.DEV) console.log(`[CB] batch ${batch}: empty`); break }
 
-      console.log(`[CB] batch ${batch}: ${data.length} candles`)
+      if(import.meta.env.DEV) console.log(`[CB] batch ${batch}: ${data.length} candles`)
       for (const c of data) {
         if (!Array.isArray(c) || c.length < 5) continue
         const ts = c[0] * 1000
@@ -238,7 +238,7 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
       }
       endSec = batchStart - granularity
       if (data.length < 250) break
-    } catch (e) { console.warn(`[CB] candles err:`, e.message); break }
+    } catch (e) { if(import.meta.env.DEV) console.warn(`[CB] candles err:`, e.message); break }
   }
 
   // Group 1h into 4h buckets
@@ -251,7 +251,7 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
     if (!by4h[key] || r.ts > by4h[key].ts) by4h[key] = { ...r, date: key }
   }
   const sorted = Object.values(by4h).sort((a, b) => a.ts - b.ts)
-  console.log(`[CB] candles ${cbSymbol}: ${results.length} raw 1h → ${sorted.length} 4h bars`)
+  if(import.meta.env.DEV) console.log(`[CB] candles ${cbSymbol}: ${results.length} raw 1h → ${sorted.length} 4h bars`)
   return sorted
 }
 
@@ -261,10 +261,10 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
 async function phemexTicker(phSymbol) {
   try {
     const res = await fetch(`/api/phemex/md/v2/ticker/24hr?symbol=${phSymbol}`)
-    if (!res.ok) { console.warn(`[PH] ticker ${phSymbol} → ${res.status}`); return null }
+    if (!res.ok) { if(import.meta.env.DEV) console.warn(`[PH] ticker ${phSymbol} → ${res.status}`); return null }
     const data = await res.json()
 
-    console.log(`[PH] ticker raw ${phSymbol}:`, JSON.stringify(data).slice(0, 400))
+    if(import.meta.env.DEV) console.log(`[PH] ticker raw ${phSymbol}:`, JSON.stringify(data).slice(0, 400))
 
     const t = data.result || (Array.isArray(data.data) ? data.data[0] : data.data) || data
 
@@ -272,7 +272,7 @@ async function phemexTicker(phSymbol) {
     let price = 0
     for (const f of ["closeRp", "lastPriceRp", "markPriceRp", "indexPriceRp"]) {
       const val = parseFloat(t[f])
-      if (val > 0) { price = val; console.log(`[PH] price from ${f}: ${val}`); break }
+      if (val > 0) { price = val; if(import.meta.env.DEV) console.log(`[PH] price from ${f}: ${val}`); break }
     }
     if (!price) {
       for (const f of ["lastPrice", "close", "markPrice", "indexPrice"]) {
@@ -295,14 +295,14 @@ async function phemexTicker(phSymbol) {
     const openRp = parseFloat(t.openRp || 0)
     if (openRp > 0 && price > 0) change = ((price - openRp) / openRp) * 100
 
-    console.log(`[PH] ticker ${phSymbol}: $${price} (${change.toFixed(2)}%)`)
+    if(import.meta.env.DEV) console.log(`[PH] ticker ${phSymbol}: $${price} (${change.toFixed(2)}%)`)
     return price > 0 ? { price, change } : null
-  } catch (e) { console.warn(`[PH] ticker err:`, e.message); return null }
+  } catch (e) { if(import.meta.env.DEV) console.warn(`[PH] ticker err:`, e.message); return null }
 }
 
 // Phemex klines — 4h (14400s), tries multiple endpoint patterns
 async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
-  console.log(`[PH] klines 4h ${phSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+  if(import.meta.env.DEV) console.log(`[PH] klines 4h ${phSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
 
   const fromSec = Math.floor(startTimeMs / 1000)
   const toSec = Math.floor(Date.now() / 1000)
@@ -318,21 +318,21 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
   for (const url of endpoints) {
     try {
       const shortPath = url.split("/api/phemex")[1]
-      console.log(`[PH] trying: ${shortPath}`)
+      if(import.meta.env.DEV) console.log(`[PH] trying: ${shortPath}`)
       const res = await fetch(url)
-      if (!res.ok) { console.warn(`[PH] ${res.status} for ${shortPath}`); continue }
+      if (!res.ok) { if(import.meta.env.DEV) console.warn(`[PH] ${res.status} for ${shortPath}`); continue }
       const data = await res.json()
 
-      if (data.code !== 0 && data.code !== undefined) { console.warn(`[PH] code=${data.code}`); continue }
+      if (data.code !== 0 && data.code !== undefined) { if(import.meta.env.DEV) console.warn(`[PH] code=${data.code}`); continue }
 
       const rows = data.data?.rows || data.data?.klines || data.data || []
-      if (!Array.isArray(rows) || rows.length === 0) { console.log(`[PH] no rows`); continue }
+      if (!Array.isArray(rows) || rows.length === 0) { if(import.meta.env.DEV) console.log(`[PH] no rows`); continue }
 
-      console.log(`[PH] klines ${phSymbol}: ${rows.length} rows, sample:`, JSON.stringify(rows[0]).slice(0, 200))
+      if(import.meta.env.DEV) console.log(`[PH] klines ${phSymbol}: ${rows.length} rows, sample:`, JSON.stringify(rows[0]).slice(0, 200))
 
       let results = []
       if (Array.isArray(rows[0])) {
-        console.log(`[PH] row length=${rows[0].length}, types: ${rows[0].map((v, i) => `[${i}]${typeof v}`).join(", ")}`)
+        if(import.meta.env.DEV) console.log(`[PH] row length=${rows[0].length}, types: ${rows[0].map((v, i) => `[${i}]${typeof v}`).join(", ")}`)
         results = rows.map(row => {
           const ts = (row[0] || 0) * 1000
           const close = parseFloat(row[6]) || parseFloat(row[5]) || parseFloat(row[4]) || 0
@@ -354,13 +354,13 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
       results.sort((a, b) => a.ts - b.ts)
 
       if (results.length > 0) {
-        console.log(`[PH] klines ${phSymbol}: ✅ ${results.length} valid 4h bars, $${results[0].close} → $${results[results.length - 1].close}`)
+        if(import.meta.env.DEV) console.log(`[PH] klines ${phSymbol}: ✅ ${results.length} valid 4h bars, $${results[0].close} → $${results[results.length - 1].close}`)
         return results
       }
-    } catch (e) { console.warn(`[PH] klines err:`, e.message); continue }
+    } catch (e) { if(import.meta.env.DEV) console.warn(`[PH] klines err:`, e.message); continue }
   }
 
-  console.warn(`[PH] klines ${phSymbol}: ❌ all endpoints failed`)
+  if(import.meta.env.DEV) console.warn(`[PH] klines ${phSymbol}: ❌ all endpoints failed`)
   return []
 }
 
@@ -371,7 +371,7 @@ async function yahooQuote(ticker) {
   try {
     // v7/finance/quote — lighter endpoint, less rate-limited than v8/chart
     const v7url = `/api/yahoo/v7/finance/quote?symbols=${ticker}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose`
-    console.log(`[YF] v7 quote ${ticker}`)
+    if(import.meta.env.DEV) console.log(`[YF] v7 quote ${ticker}`)
     const r7 = await fetch(v7url)
     if (r7.ok) {
       const d7 = await r7.json()
@@ -379,34 +379,34 @@ async function yahooQuote(ticker) {
       if (q && q.regularMarketPrice > 0) {
         const price = q.regularMarketPrice
         const change = q.regularMarketChangePercent || 0
-        console.log(`[YF] v7 quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
+        if(import.meta.env.DEV) console.log(`[YF] v7 quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
         return { price, change }
       }
     }
-    console.warn(`[YF] v7 quote ${ticker} → ${r7.status}, falling back to v8 chart`)
+    if(import.meta.env.DEV) console.warn(`[YF] v7 quote ${ticker} → ${r7.status}, falling back to v8 chart`)
 
     // Fallback: v8/finance/chart with 2d range
     const url = `/api/yahoo/v8/finance/chart/${ticker}?interval=1d&range=2d`
     const res = await fetch(url)
-    if (!res.ok) { console.warn(`[YF] quote ${ticker} → ${res.status}`); return null }
+    if (!res.ok) { if(import.meta.env.DEV) console.warn(`[YF] quote ${ticker} → ${res.status}`); return null }
     const data = await res.json()
 
     const result = data.chart?.result?.[0]
-    if (!result) { console.warn(`[YF] quote ${ticker}: no result`); return null }
+    if (!result) { if(import.meta.env.DEV) console.warn(`[YF] quote ${ticker}: no result`); return null }
 
     const meta = result.meta || {}
     const price = meta.regularMarketPrice || 0
     const prevClose = meta.chartPreviousClose || meta.previousClose || 0
     const change = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0
 
-    console.log(`[YF] v8 quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
+    if(import.meta.env.DEV) console.log(`[YF] v8 quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
     return price > 0 ? { price, change } : null
-  } catch (e) { console.warn(`[YF] quote err:`, e.message); return null }
+  } catch (e) { if(import.meta.env.DEV) console.warn(`[YF] quote err:`, e.message); return null }
 }
 
 // Yahoo Finance klines — 1h candles, grouped into 4h
 async function yahooKlines(ticker, startTimeMs) {
-  console.log(`[YF] klines ${ticker} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+  if(import.meta.env.DEV) console.log(`[YF] klines ${ticker} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   try {
     const now = Math.floor(Date.now() / 1000)
     const start = Math.floor(startTimeMs / 1000)
@@ -414,24 +414,24 @@ async function yahooKlines(ticker, startTimeMs) {
     // Yahoo allows max ~730 days for 1h interval
     // Use period1/period2 for exact range
     const url = `/api/yahoo/v8/finance/chart/${ticker}?interval=1h&period1=${start}&period2=${now}`
-    console.log(`[YF] fetching: ${ticker} period1=${start} period2=${now}`)
+    if(import.meta.env.DEV) console.log(`[YF] fetching: ${ticker} period1=${start} period2=${now}`)
     const res = await fetch(url)
     if (!res.ok) {
       const body = await res.text().catch(() => "")
-      console.warn(`[YF] klines ${ticker} → ${res.status}`, body.slice(0, 200))
+      if(import.meta.env.DEV) console.warn(`[YF] klines ${ticker} → ${res.status}`, body.slice(0, 200))
       return []
     }
     const data = await res.json()
 
     const result = data.chart?.result?.[0]
-    if (!result) { console.warn(`[YF] klines ${ticker}: no result`); return [] }
+    if (!result) { if(import.meta.env.DEV) console.warn(`[YF] klines ${ticker}: no result`); return [] }
 
     const timestamps = result.timestamp || []
     const closes = result.indicators?.quote?.[0]?.close || []
 
-    if (timestamps.length === 0) { console.warn(`[YF] klines ${ticker}: no timestamps`); return [] }
+    if (timestamps.length === 0) { if(import.meta.env.DEV) console.warn(`[YF] klines ${ticker}: no timestamps`); return [] }
 
-    console.log(`[YF] klines ${ticker}: ${timestamps.length} raw 1h candles`)
+    if(import.meta.env.DEV) console.log(`[YF] klines ${ticker}: ${timestamps.length} raw 1h candles`)
 
     // Build raw candles
     const raw = []
@@ -456,9 +456,9 @@ async function yahooKlines(ticker, startTimeMs) {
     }
 
     const sorted = Object.values(by4h).sort((a, b) => a.ts - b.ts)
-    console.log(`[YF] klines ${ticker}: ${raw.length} raw 1h → ${sorted.length} 4h bars, $${sorted[0]?.close} → $${sorted[sorted.length - 1]?.close}`)
+    if(import.meta.env.DEV) console.log(`[YF] klines ${ticker}: ${raw.length} raw 1h → ${sorted.length} 4h bars, $${sorted[0]?.close} → $${sorted[sorted.length - 1]?.close}`)
     return sorted
-  } catch (e) { console.warn(`[YF] klines err:`, e.message); return [] }
+  } catch (e) { if(import.meta.env.DEV) console.warn(`[YF] klines err:`, e.message); return [] }
 }
 
 
@@ -477,31 +477,31 @@ export async function fetchTickers(holdings) {
     const resolved = resolveExchange(h.symbol, h.type, h.exchange)
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
-    console.log(`[Ticker] ${h.symbol}(${h.type}/${h.exchange || "auto"}) → ${resolved.exchange}:${resolved.sym}`)
+    if(import.meta.env.DEV) console.log(`[Ticker] ${h.symbol}(${h.type}/${h.exchange || "auto"}) → ${resolved.exchange}:${resolved.sym}`)
 
     tasks.push((async () => {
       let data = null
 
       if (resolved.exchange === "coingecko") {
         data = await coingeckoQuote(resolved.key)
-        if (data) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko: $${data.price}`)
+        if (data) if(import.meta.env.DEV) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko: $${data.price}`)
       } else if (resolved.exchange === "coinbase") {
         data = await coinbaseTicker(resolved.sym)
         if (data) {
           data.change = await coinbase24h(resolved.sym)
         } else {
           // FALLBACK: Coinbase Exchange API doesn't have this product → CoinGecko
-          console.log(`[Ticker] ${resolved.key}: CB failed, trying CoinGecko`)
+          if(import.meta.env.DEV) console.log(`[Ticker] ${resolved.key}: CB failed, trying CoinGecko`)
           data = await coingeckoQuote(resolved.key)
-          if (data) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko fallback: $${data.price}`)
+          if (data) if(import.meta.env.DEV) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko fallback: $${data.price}`)
         }
       } else if (resolved.exchange === "phemex") {
         data = await phemexTicker(resolved.sym)
         if (!data) {
           // FALLBACK: Phemex doesn't have this product → CoinGecko
-          console.log(`[Ticker] ${resolved.key}: PH failed, trying CoinGecko`)
+          if(import.meta.env.DEV) console.log(`[Ticker] ${resolved.key}: PH failed, trying CoinGecko`)
           data = await coingeckoQuote(resolved.key)
-          if (data) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko fallback: $${data.price}`)
+          if (data) if(import.meta.env.DEV) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko fallback: $${data.price}`)
         }
       } else if (resolved.exchange === "yahoo") {
         data = await yahooQuote(resolved.sym)
@@ -525,52 +525,52 @@ export async function fetchAllKlines(requests) {
   const seen = new Set()
   const tasks = []
 
-  console.log(`[Klines] ── Starting with ${requests.length} requests:`, requests.map(r => `${r.symbol}(${r.type})`).join(", "))
+  if(import.meta.env.DEV) console.log(`[Klines] ── Starting with ${requests.length} requests:`, requests.map(r => `${r.symbol}(${r.type})`).join(", "))
 
   for (const req of requests) {
     const resolved = resolveExchange(req.symbol, req.type, req.exchange)
-    console.log(`[Klines] resolve ${req.symbol} (type=${req.type}, exchange=${req.exchange || "auto"}) →`, resolved ? `${resolved.exchange}:${resolved.sym}` : "NULL")
+    if(import.meta.env.DEV) console.log(`[Klines] resolve ${req.symbol} (type=${req.type}, exchange=${req.exchange || "auto"}) →`, resolved ? `${resolved.exchange}:${resolved.sym}` : "NULL")
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
 
     tasks.push((async () => {
       let klines = []
-      console.log(`[Klines] ${resolved.key} → ${resolved.exchange}:${resolved.sym}`)
+      if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key} → ${resolved.exchange}:${resolved.sym}`)
 
       if (resolved.exchange === "coingecko") {
         klines = await coingeckoKlines(resolved.key, req.startTime)
-        if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko: ${klines.length} bars`)
+        if (klines.length > 0) if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko: ${klines.length} bars`)
       } else if (resolved.exchange === "coinbase") {
         klines = await coinbaseCandles(resolved.sym, req.startTime)
         if (klines.length === 0) {
           // FALLBACK: Coinbase Exchange API doesn't have this product → CoinGecko
-          console.log(`[Klines] ${resolved.key}: CB failed, trying CoinGecko`)
+          if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: CB failed, trying CoinGecko`)
           klines = await coingeckoKlines(resolved.key, req.startTime)
-          if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
+          if (klines.length > 0) if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
         }
       } else if (resolved.exchange === "phemex") {
         const ticker = await phemexTicker(resolved.sym)
         klines = await phemexKlines(resolved.sym, req.startTime, ticker?.price || 0)
         if (klines.length === 0) {
           // FALLBACK: Phemex doesn't have this product → CoinGecko
-          console.log(`[Klines] ${resolved.key}: PH failed, trying CoinGecko`)
+          if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: PH failed, trying CoinGecko`)
           klines = await coingeckoKlines(resolved.key, req.startTime)
-          if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
+          if (klines.length > 0) if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
         }
       } else if (resolved.exchange === "yahoo") {
         klines = await yahooKlines(resolved.sym, req.startTime)
       }
 
       if (klines.length > 0) {
-        console.log(`[Klines] ${resolved.key}: ✅ ${klines.length} bars`)
+        if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ ${klines.length} bars`)
         results[resolved.key] = klines
       } else {
-        console.warn(`[Klines] ${resolved.key}: ❌ no data`)
+        if(import.meta.env.DEV) console.warn(`[Klines] ${resolved.key}: ❌ no data`)
       }
     })())
   }
 
   for (let i = 0; i < tasks.length; i += 3) await Promise.all(tasks.slice(i, i + 3))
-  console.log(`[Klines] Done:`, Object.keys(results).map(k => `${k}(${results[k].length})`).join(", "))
+  if(import.meta.env.DEV) console.log(`[Klines] Done:`, Object.keys(results).map(k => `${k}(${results[k].length})`).join(", "))
   return results
 }
