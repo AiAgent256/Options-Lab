@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, ReferenceLine, Legend, ComposedChart, PieChart, Pie, Cell } from "recharts"
-import { fetchBinanceTickers, fetchMultiKlines } from "../hooks/useBinanceKlines"
+import { fetchBinanceTickers, fetchMultiKlines } from "../../hooks/useMarketData"
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#a855f7", "#14b8a6", "#e11d48"]
