@@ -19,6 +19,7 @@ const ASSET_TYPES = [
 const VENUES = [
   { value: "coinbase", label: "Coinbase (Spot)", type: "crypto_spot", tvPrefix: "COINBASE", tvSuffix: "USD" },
   { value: "phemex", label: "Phemex (Perp)", type: "crypto_perp", tvPrefix: "PHEMEX", tvSuffix: "USDT" },
+  { value: "coingecko", label: "Other Crypto (CoinGecko)", type: "crypto_spot", tvPrefix: "COINBASE", tvSuffix: "USD" },
   { value: "nasdaq", label: "NASDAQ", type: "equity", tvPrefix: "NASDAQ" },
   { value: "nyse", label: "NYSE", type: "equity", tvPrefix: "NYSE" },
   { value: "amex", label: "AMEX / NYSE Arca", type: "equity", tvPrefix: "AMEX" },
@@ -593,8 +594,9 @@ export default function Portfolio({ onNavigateToChart }) {
             <div>
               <div className="pf-label">Symbol</div>
               <input className="pf-input" type="text" placeholder={
-                newHolding.exchange === "coinbase" ? "BTC, ETH, ZRO, SOL…" :
-                newHolding.exchange === "phemex" ? "BTC, CC, HYPE…" :
+                newHolding.exchange === "coinbase" ? "BTC, ETH, SOL, DOGE…" :
+                newHolding.exchange === "phemex" ? "BTC, CC, HYPE, ZRO…" :
+                newHolding.exchange === "coingecko" ? "ZRO, PEPE, TAO, WIF…" :
                 newHolding.exchange === "nasdaq" ? "MSTR, AAPL, NVDA…" :
                 newHolding.exchange === "nyse" ? "SMR, COIN…" :
                 newHolding.exchange === "amex" ? "SPY, QQQ…" :
