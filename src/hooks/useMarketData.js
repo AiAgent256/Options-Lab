@@ -129,7 +129,7 @@ export function normalizeSymbol(symbol) {
 
 export function isCryptoSymbol(symbol) {
   const key = normalizeSymbol(symbol)
-  return !!(COINBASE_MAP[key] || PHEMEX_MAP[key])
+  return !!(COINBASE_MAP[key] || PHEMEX_MAP[key] || COINGECKO_ID_MAP[key])
 }
 
 export function isEquitySymbol(symbol) {
@@ -159,6 +159,7 @@ function resolveExchange(symbol, type, exchange) {
   // If exchange is explicitly set, use it directly
   if (exchange === "coinbase") return { exchange: "coinbase", sym: COINBASE_MAP[key] || `${key}-USD`, key }
   if (exchange === "phemex") return { exchange: "phemex", sym: PHEMEX_MAP[key] || `${key}USDT`, key }
+  if (exchange === "coingecko") return { exchange: "coingecko", sym: coingeckoId(key), key }
   if (exchange === "nasdaq" || exchange === "nyse" || exchange === "amex") return { exchange: "yahoo", sym: key, key }
 
   // Fallback: guess from type (backward compat for holdings without exchange field)
@@ -167,9 +168,11 @@ function resolveExchange(symbol, type, exchange) {
   if (isPerp && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
   if (isPerp) return { exchange: "phemex", sym: `${key}USDT`, key }
 
-  // Crypto spot → Coinbase
+  // Crypto spot → Coinbase, then CoinGecko for tokens not on major exchanges
   if (type !== "equity" && COINBASE_MAP[key]) return { exchange: "coinbase", sym: COINBASE_MAP[key], key }
   if (type !== "equity" && PHEMEX_MAP[key]) return { exchange: "phemex", sym: PHEMEX_MAP[key], key }
+  if (type !== "equity" && COINGECKO_ID_MAP[key]) return { exchange: "coingecko", sym: coingeckoId(key), key }
+  if (isSpot && COINGECKO_ID_MAP[key]) return { exchange: "coingecko", sym: coingeckoId(key), key }
   if (isSpot) return { exchange: "coinbase", sym: `${key}-USD`, key }
 
   // Equities → Yahoo Finance
@@ -464,7 +467,10 @@ export async function fetchTickers(holdings) {
     tasks.push((async () => {
       let data = null
 
-      if (resolved.exchange === "coinbase") {
+      if (resolved.exchange === "coingecko") {
+        data = await coingeckoQuote(resolved.key)
+        if (data) console.log(`[Ticker] ${resolved.key}: ✅ CoinGecko: $${data.price}`)
+      } else if (resolved.exchange === "coinbase") {
         data = await coinbaseTicker(resolved.sym)
         if (data) {
           data.change = await coinbase24h(resolved.sym)
@@ -516,7 +522,10 @@ export async function fetchAllKlines(requests) {
       let klines = []
       console.log(`[Klines] ${resolved.key} → ${resolved.exchange}:${resolved.sym}`)
 
-      if (resolved.exchange === "coinbase") {
+      if (resolved.exchange === "coingecko") {
+        klines = await coingeckoKlines(resolved.key, req.startTime)
+        if (klines.length > 0) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko: ${klines.length} bars`)
+      } else if (resolved.exchange === "coinbase") {
         klines = await coinbaseCandles(resolved.sym, req.startTime)
         if (klines.length === 0) {
           // FALLBACK: Coinbase Exchange API doesn't have this product → CoinGecko
