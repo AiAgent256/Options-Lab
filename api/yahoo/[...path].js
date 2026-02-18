@@ -1,53 +1,21 @@
 // Vercel serverless function — proxy to Yahoo Finance API
-// Handles: /api/yahoo/* -> https://query2.finance.yahoo.com/*
-//
-// Yahoo now requires a crumb + cookie for v8 API access.
-// This proxy fetches a session cookie first, then uses it for the actual request.
+// Handles: /api/yahoo/* -> https://query1.finance.yahoo.com/* (with query2 fallback)
 //
 // NOTE: Vercel legacy "routes" config does NOT inject [...path] into req.query.
 // Path must be parsed from req.url directly.
+//
+// Yahoo Finance rate-limiting strategy:
+// - No crumb/cookie fetching (adds extra round-trips that get rate-limited first)
+// - Set browser-like headers (UA, Referer, Accept-Language)
+// - Try query1 first, fall back to query2
 
-let cachedCrumb = null
-let cachedCookie = null
-let crumbExpiry = 0
-
-async function getCrumbAndCookie() {
-  const now = Date.now()
-  if (cachedCrumb && cachedCookie && now < crumbExpiry) {
-    return { crumb: cachedCrumb, cookie: cachedCookie }
-  }
-
-  const headers = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  }
-
-  // Step 1: Visit Yahoo Finance to get session cookies
-  const pageRes = await fetch("https://finance.yahoo.com/quote/AAPL/", {
-    headers,
-    redirect: "follow",
-  })
-
-  const setCookies = pageRes.headers.getSetCookie?.() || []
-  const cookieStr = setCookies.map(c => c.split(";")[0]).join("; ")
-
-  // Step 2: Get the crumb using the cookies
-  const crumbRes = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
-    headers: { ...headers, "Cookie": cookieStr },
-  })
-
-  if (!crumbRes.ok) {
-    // Fallback: try without crumb (some endpoints still work)
-    return { crumb: null, cookie: null }
-  }
-
-  const crumb = await crumbRes.text()
-
-  cachedCrumb = crumb
-  cachedCookie = cookieStr
-  crumbExpiry = now + 5 * 60 * 1000 // Cache for 5 minutes
-
-  return { crumb, cookie: cookieStr }
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+const YAHOO_HEADERS = {
+  "User-Agent": UA,
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Referer": "https://finance.yahoo.com/",
+  "Origin": "https://finance.yahoo.com",
 }
 
 export default async function handler(req, res) {
@@ -58,59 +26,45 @@ export default async function handler(req, res) {
   const pathPart = qIdx >= 0 ? rawUrl.slice(0, qIdx) : rawUrl
   const upstreamPath = pathPart.replace(/^\/api\/yahoo\/?/, '')
 
-  const url = new URL(`https://query2.finance.yahoo.com/${upstreamPath}`)
+  const queryStr = qIdx >= 0 ? rawUrl.slice(qIdx + 1) : ''
 
-  // Copy query params from original request
-  const queryParams = new URLSearchParams(qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '')
-  queryParams.forEach((value, key) => {
-    if (key !== 'path') url.searchParams.set(key, value)
-  })
+  // Build query params (exclude internal 'path' key)
+  const queryParams = new URLSearchParams(queryStr)
+  queryParams.delete('path')
 
-  try {
-    // Try to get crumb + cookie for authenticated requests
-    const { crumb, cookie } = await getCrumbAndCookie()
+  // Try query1 first (less rate-limited), then query2 as fallback
+  const bases = [
+    `https://query1.finance.yahoo.com/${upstreamPath}`,
+    `https://query2.finance.yahoo.com/${upstreamPath}`,
+  ]
 
-    // Append crumb to query params if available
-    if (crumb) {
-      url.searchParams.set("crumb", crumb)
-    }
+  for (const base of bases) {
+    try {
+      const url = new URL(base)
+      queryParams.forEach((v, k) => url.searchParams.set(k, v))
 
-    const headers = {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "application/json,text/html,application/xhtml+xml",
-    }
-    if (cookie) {
-      headers["Cookie"] = cookie
-    }
-
-    const upstream = await fetch(url.toString(), {
-      method: req.method,
-      headers,
-    })
-
-    // If first attempt fails, retry without crumb (fallback for query1)
-    if (!upstream.ok && crumb) {
-      url.searchParams.delete("crumb")
-      const fallbackUrl = url.toString().replace("query2.finance", "query1.finance")
-      const fallback = await fetch(fallbackUrl, {
+      const upstream = await fetch(url.toString(), {
         method: req.method,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "application/json",
-        },
+        headers: YAHOO_HEADERS,
       })
-      const data = await fallback.text()
+
+      // 429 = rate limit, 403 = blocked — try next base
+      if (upstream.status === 429 || upstream.status === 403) {
+        console.warn(`[YF] ${upstream.status} from ${base.slice(0, 50)}... trying next`)
+        continue
+      }
+
+      const data = await upstream.text()
       res.setHeader("Access-Control-Allow-Origin", "*")
       res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60")
-      res.status(fallback.status).send(data)
+      res.status(upstream.status).send(data)
       return
+    } catch (e) {
+      console.warn(`[YF] fetch error for ${base.slice(0, 50)}:`, e.message)
+      continue
     }
-
-    const data = await upstream.text()
-    res.setHeader("Access-Control-Allow-Origin", "*")
-    res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60")
-    res.status(upstream.status).send(data)
-  } catch (err) {
-    res.status(502).json({ error: "Upstream request failed", detail: err.message })
   }
+
+  // Both query1 and query2 failed
+  res.status(429).json({ error: "Yahoo Finance rate limit — both endpoints exhausted" })
 }
