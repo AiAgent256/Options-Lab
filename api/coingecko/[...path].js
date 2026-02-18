@@ -23,10 +23,13 @@ export default async function handler(req, res) {
 
   // Include demo API key if set
   const headers = { "Accept": "application/json" }
-  const apiKey = process.env.COINGECKO_API_KEY
+  const apiKey = (process.env.COINGECKO_API_KEY || '').trim()
+  console.log('[CG] key present:', !!apiKey, 'length:', apiKey.length)
   if (apiKey) {
     headers["x-cg-demo-api-key"] = apiKey
   }
+
+  console.log('[CG] calling:', url.toString())
 
   try {
     const upstream = await fetch(url.toString(), {
@@ -34,6 +37,7 @@ export default async function handler(req, res) {
       headers,
     })
     const data = await upstream.text()
+    console.log('[CG] status:', upstream.status)
     res.setHeader("Access-Control-Allow-Origin", "*")
     // Cache 30s, stale 60s — CoinGecko free tier: 30 req/min, 10k/month
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60")
