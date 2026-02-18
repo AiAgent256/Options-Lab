@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
-import { fmtDollar, fmtPnl, fmtPnlPct } from "../../utils/format";
+import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
 import { COLORS, FONTS } from "../../utils/constants";
 
 // ─── PERSISTENCE LAYER ──────────────────────────────────────────────────────
@@ -493,9 +493,9 @@ export default function Portfolio({ onNavigateToChart }) {
                   <td style={{ ...S.td, color: (h.leverage || 1) > 1 ? COLORS.warning.text : COLORS.text.dim }}>
                     {(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}
                   </td>
-                  <td style={S.td}>{fmtDollar(h.costBasis)}</td>
+                  <td style={S.td}>{fmtPrice(h.costBasis)}</td>
                   <td style={{ ...S.td, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>
-                    {h.currentPrice > 0 ? fmtDollar(h.currentPrice) : "—"}
+                    {h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}
                   </td>
                   <td style={{ ...S.td, color: pnlColor(h.change24h) }}>
                     {h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}
@@ -535,7 +535,7 @@ export default function Portfolio({ onNavigateToChart }) {
         <input style={{ ...S.input, width: 80 }} type="number" placeholder="Qty" value={newQty}
           onChange={e => setNewQty(e.target.value)} />
         <input style={{ ...S.input, width: 100 }} type="number" placeholder="Cost basis" value={newCost}
-          onChange={e => setNewCost(e.target.value)} />
+          onChange={e => setNewCost(e.target.value)} step="any" />
         <input style={{ ...S.input, width: 55 }} type="number" placeholder="Lev" value={newLeverage}
           onChange={e => setNewLeverage(e.target.value)} min="1" step="1" title="Leverage (1 = spot)" />
         <input style={{ ...S.input, width: 120 }} type="date" value={newDate}
@@ -569,8 +569,8 @@ export default function Portfolio({ onNavigateToChart }) {
                     <span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{t.symbol}</span>
                   </td>
                   <td style={S.td}>{t.qty}</td>
-                  <td style={S.td}>{fmtDollar(t.costBasis)}</td>
-                  <td style={S.td}>{fmtDollar(t.exitPrice)}</td>
+                  <td style={S.td}>{fmtPrice(t.costBasis)}</td>
+                  <td style={S.td}>{fmtPrice(t.exitPrice)}</td>
                   <td style={{ ...S.td, fontSize: 10 }}>{t.openDate}</td>
                   <td style={{ ...S.td, fontSize: 10 }}>{t.closeDate}</td>
                   <td style={{ ...S.td, color: pnlColor(t.realizedPnl), fontWeight: 600 }}>

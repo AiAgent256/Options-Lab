@@ -20,7 +20,27 @@ export function addCommas(s) {
 export function fmtDollar(n) {
   if (n == null || !isFinite(n)) return DASH;
   const abs = Math.abs(n);
-  const str = abs < 0.01 && abs > 0 ? abs.toFixed(4) : abs.toFixed(2);
+  let str;
+  if (abs === 0) str = "0.00";
+  else if (abs < 0.001) str = abs.toFixed(6);
+  else if (abs < 1) str = abs.toFixed(4);
+  else str = abs.toFixed(2);
+  return (n < 0 ? "-$" : "$") + addCommas(str);
+}
+
+/**
+ * Format per-unit prices with appropriate precision.
+ * Shows 4+ decimals for sub-dollar, 2 for $1+.
+ */
+export function fmtPrice(n) {
+  if (n == null || !isFinite(n)) return DASH;
+  const abs = Math.abs(n);
+  let str;
+  if (abs === 0) str = "0.00";
+  else if (abs < 0.001) str = abs.toFixed(6);
+  else if (abs < 1) str = abs.toFixed(4);
+  else if (abs < 100) str = abs.toFixed(2);
+  else str = abs.toFixed(2);
   return (n < 0 ? "-$" : "$") + addCommas(str);
 }
 
