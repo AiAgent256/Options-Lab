@@ -369,9 +369,24 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
 
 async function yahooQuote(ticker) {
   try {
-    // Use chart endpoint with 1d range to get current price + today's change
+    // v7/finance/quote — lighter endpoint, less rate-limited than v8/chart
+    const v7url = `/api/yahoo/v7/finance/quote?symbols=${ticker}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose`
+    console.log(`[YF] v7 quote ${ticker}`)
+    const r7 = await fetch(v7url)
+    if (r7.ok) {
+      const d7 = await r7.json()
+      const q = d7.quoteResponse?.result?.[0]
+      if (q && q.regularMarketPrice > 0) {
+        const price = q.regularMarketPrice
+        const change = q.regularMarketChangePercent || 0
+        console.log(`[YF] v7 quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
+        return { price, change }
+      }
+    }
+    console.warn(`[YF] v7 quote ${ticker} → ${r7.status}, falling back to v8 chart`)
+
+    // Fallback: v8/finance/chart with 2d range
     const url = `/api/yahoo/v8/finance/chart/${ticker}?interval=1d&range=2d`
-    console.log(`[YF] quote ${ticker}`)
     const res = await fetch(url)
     if (!res.ok) { console.warn(`[YF] quote ${ticker} → ${res.status}`); return null }
     const data = await res.json()
@@ -384,7 +399,7 @@ async function yahooQuote(ticker) {
     const prevClose = meta.chartPreviousClose || meta.previousClose || 0
     const change = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0
 
-    console.log(`[YF] quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
+    console.log(`[YF] v8 quote ${ticker}: $${price} (${change.toFixed(2)}%)`)
     return price > 0 ? { price, change } : null
   } catch (e) { console.warn(`[YF] quote err:`, e.message); return null }
 }
