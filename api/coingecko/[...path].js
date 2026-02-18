@@ -4,6 +4,9 @@
 // CoinGecko requires an API key even for the free (Demo) tier.
 // Set COINGECKO_API_KEY in Vercel Environment Variables.
 // Get a free key at: https://www.coingecko.com/en/api/pricing
+//
+// NOTE: Vercel legacy "routes" config does NOT inject [...path] into req.query.
+// Path must be parsed from req.url directly.
 
 export default async function handler(req, res) {
   // Parse path from req.url directly — Vercel legacy routes don't inject
@@ -21,15 +24,12 @@ export default async function handler(req, res) {
     if (key !== 'path') url.searchParams.set(key, value)
   })
 
-  // Include demo API key if set
+  // Include demo API key if set — trim() guards against accidental whitespace
   const headers = { "Accept": "application/json" }
   const apiKey = (process.env.COINGECKO_API_KEY || '').trim()
-  console.log('[CG] key present:', !!apiKey, 'length:', apiKey.length)
   if (apiKey) {
     headers["x-cg-demo-api-key"] = apiKey
   }
-
-  console.log('[CG] calling:', url.toString())
 
   try {
     const upstream = await fetch(url.toString(), {
@@ -37,7 +37,6 @@ export default async function handler(req, res) {
       headers,
     })
     const data = await upstream.text()
-    console.log('[CG] status:', upstream.status)
     res.setHeader("Access-Control-Allow-Origin", "*")
     // Cache 30s, stale 60s — CoinGecko free tier: 30 req/min, 10k/month
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60")
