@@ -3,6 +3,9 @@
 //
 // Yahoo now requires a crumb + cookie for v8 API access.
 // This proxy fetches a session cookie first, then uses it for the actual request.
+//
+// NOTE: Vercel legacy "routes" config does NOT inject [...path] into req.query.
+// Path must be parsed from req.url directly.
 
 let cachedCrumb = null
 let cachedCookie = null
@@ -48,12 +51,19 @@ async function getCrumbAndCookie() {
 }
 
 export default async function handler(req, res) {
-  const { path } = req.query
-  const upstreamPath = Array.isArray(path) ? path.join("/") : (path || "")
+  // Parse path from req.url directly — Vercel legacy routes don't inject
+  // [...path] into req.query. req.url = "/api/yahoo/v8/finance/chart/SMR?interval=1d&range=2d"
+  const rawUrl = req.url || ''
+  const qIdx = rawUrl.indexOf('?')
+  const pathPart = qIdx >= 0 ? rawUrl.slice(0, qIdx) : rawUrl
+  const upstreamPath = pathPart.replace(/^\/api\/yahoo\/?/, '')
 
   const url = new URL(`https://query2.finance.yahoo.com/${upstreamPath}`)
-  Object.entries(req.query).forEach(([key, value]) => {
-    if (key !== "path") url.searchParams.set(key, value)
+
+  // Copy query params from original request
+  const queryParams = new URLSearchParams(qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '')
+  queryParams.forEach((value, key) => {
+    if (key !== 'path') url.searchParams.set(key, value)
   })
 
   try {
