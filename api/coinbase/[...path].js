@@ -1,13 +1,23 @@
 // Vercel serverless function — proxy to Coinbase Exchange API
 // Handles: /api/coinbase/* -> https://api.exchange.coinbase.com/*
+//
+// NOTE: Vercel legacy "routes" config does NOT inject [...path] into req.query.
+// Path must be parsed from req.url directly.
 
 export default async function handler(req, res) {
-  const { path } = req.query
-  const upstreamPath = Array.isArray(path) ? path.join("/") : (path || "")
+  // Parse path from req.url directly — Vercel legacy routes don't inject
+  // [...path] into req.query. req.url = "/api/coinbase/products/BTC-USD/ticker?..."
+  const rawUrl = req.url || ''
+  const qIdx = rawUrl.indexOf('?')
+  const pathPart = qIdx >= 0 ? rawUrl.slice(0, qIdx) : rawUrl
+  const upstreamPath = pathPart.replace(/^\/api\/coinbase\/?/, '')
 
   const url = new URL(`https://api.exchange.coinbase.com/${upstreamPath}`)
-  Object.entries(req.query).forEach(([key, value]) => {
-    if (key !== "path") url.searchParams.set(key, value)
+
+  // Copy query params from original request
+  const queryParams = new URLSearchParams(qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '')
+  queryParams.forEach((value, key) => {
+    if (key !== 'path') url.searchParams.set(key, value)
   })
 
   try {
