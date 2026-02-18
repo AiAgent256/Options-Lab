@@ -205,30 +205,45 @@ export default function Portfolio({ onNavigateToChart }) {
   const chartData = useMemo(() => {
     if (Object.keys(klineData).length === 0) return [];
 
-    // Build a unified timeline: for each date, sum (holding qty × price) across all assets
-    const dateMap = {};
+    // For each asset, get the LAST close price per calendar day
+    // (klines are 4h candles, so multiple per day — we want end-of-day)
+    const assetDayPrice = {}; // { "BTC": { "2026-02-17": 95000, ... }, ... }
 
     holdings.forEach(h => {
       const key = h.symbol.toUpperCase();
       const klines = klineData[key];
       if (!klines) return;
+      if (!assetDayPrice[key]) assetDayPrice[key] = {};
       klines.forEach(k => {
         const day = k.date?.slice(0, 10);
-        if (!day) return;
-        if (!dateMap[day]) dateMap[day] = { date: day, totalValue: 0, breakdown: {} };
-        const lev = h.leverage || 1;
-        const val = (k.close * h.qty) / lev;
-        dateMap[day].totalValue += val;
-        dateMap[day].breakdown[key] = (dateMap[day].breakdown[key] || 0) + val;
+        if (!day || !k.close) return;
+        // Overwrite with latest candle for this day (klines are sorted by time)
+        assetDayPrice[key][day] = k.close;
       });
     });
 
-    // Also add cost basis line
+    // Build unified timeline: for each date, sum (last close × qty / leverage) across holdings
+    const allDates = new Set();
+    Object.values(assetDayPrice).forEach(dayMap => {
+      Object.keys(dayMap).forEach(d => allDates.add(d));
+    });
+
     const totalCost = holdings.reduce((sum, h) => sum + (h.costBasis * h.qty) / (h.leverage || 1), 0);
 
-    return Object.values(dateMap)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(d => ({ ...d, costBasis: totalCost }));
+    return [...allDates].sort().map(date => {
+      let totalValue = 0;
+      const breakdown = {};
+      holdings.forEach(h => {
+        const key = h.symbol.toUpperCase();
+        const price = assetDayPrice[key]?.[date];
+        if (price == null) return;
+        const lev = h.leverage || 1;
+        const val = (price * h.qty) / lev;
+        totalValue += val;
+        breakdown[key] = val;
+      });
+      return { date, totalValue, breakdown, costBasis: totalCost };
+    });
   }, [klineData, holdings]);
 
   // ── Summary calculations ──
