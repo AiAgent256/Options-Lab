@@ -416,13 +416,15 @@ export default function Portfolio({ onNavigateToChart }) {
   }, [klineData, marketHoldings, collectibleHoldings, cashHoldings, holdings]);
 
   const summary = useMemo(() => {
-    let marketValue = 0, marketCost = 0;
+    let marketValue = 0, marketCost = 0, marketPnl = 0;
     const enrichedMarket = marketHoldings.map(h => {
       const pd = prices[h.symbol.toUpperCase()];
       const cp = pd?.price || 0, ch = pd?.change || 0, lev = h.leverage || 1;
-      const mv = (cp * h.qty) / lev, ct = (h.costBasis * h.qty) / lev;
-      const pnl = mv - ct, pp = ct > 0 ? pnl / ct : 0;
-      marketValue += mv; marketCost += ct;
+      const mv = (cp * h.qty) / lev;           // margin value (capital at risk)
+      const ct = (h.costBasis * h.qty) / lev;   // margin cost (capital deployed)
+      const pnl = (cp - h.costBasis) * h.qty;   // notional P&L — what actually hits your account
+      const pp = ct > 0 ? pnl / ct : 0;         // return on margin
+      marketValue += mv; marketCost += ct; marketPnl += pnl;
       return { ...h, currentPrice: cp, change24h: ch, marketValue: mv, costTotal: ct, pnl, pnlPct: pp };
     });
     let collectibleValue = 0, collectibleCost = 0;
@@ -435,7 +437,8 @@ export default function Portfolio({ onNavigateToChart }) {
     const cashValue = cashHoldings.reduce((s, h) => s + h.qty, 0);
     const totalValue = marketValue + collectibleValue + cashValue;
     const totalCost = marketCost + collectibleCost + cashValue;
-    const totalPnl = totalValue - totalCost;
+    const collectiblePnl = collectibleValue - collectibleCost;
+    const totalPnl = marketPnl + collectiblePnl;
     const totalPnlPct = totalCost > 0 ? totalPnl / totalCost : 0;
     const realizedPnl = closedTrades.reduce((s, t) => s + (t.realizedPnl || 0), 0);
     return { enrichedMarket, enrichedCollectibles, marketValue, marketCost, collectibleValue, collectibleCost, cashValue, totalValue, totalCost, totalPnl, totalPnlPct, realizedPnl };
