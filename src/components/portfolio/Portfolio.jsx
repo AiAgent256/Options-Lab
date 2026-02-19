@@ -4,13 +4,11 @@ import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
 import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
 import { COLORS, FONTS } from "../../utils/constants";
 
-// ─── PERSISTENCE LAYER ──────────────────────────────────────────────────────
-// All portfolio state is stored in localStorage under these keys.
-// Export/Import allows moving this data between devices.
+// ─── PERSISTENCE ────────────────────────────────────────────────────────────
 const KEYS = {
   holdings: "optlab:portfolio:holdings",
   closedTrades: "optlab:portfolio:closed",
-  snapshots: "optlab:portfolio:snapshots", // daily portfolio value snapshots
+  snapshots: "optlab:portfolio:snapshots",
 };
 
 function loadJSON(key, fallback) {
@@ -24,11 +22,19 @@ function saveJSON(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* full */ }
 }
 
-const DEFAULT_HOLDINGS = [
-  { id: 1, symbol: "BTC", type: "crypto", exchange: "coinbase", qty: 1, costBasis: 40000, label: "Bitcoin", openDate: "2024-01-15", leverage: 1 },
-  { id: 2, symbol: "ETH", type: "crypto", exchange: "coinbase", qty: 10, costBasis: 2200, label: "Ethereum", openDate: "2024-02-01", leverage: 1 },
-  { id: 3, symbol: "SOL", type: "crypto", exchange: "coinbase", qty: 50, costBasis: 80, label: "Solana", openDate: "2024-03-10", leverage: 1 },
-];
+const ASSET_CLASS_LABELS = {
+  market: "Market Assets",
+  collectible: "Collectibles",
+  cash: "Cash & Margin",
+};
+
+const ASSET_CLASS_COLORS = {
+  market: COLORS.accent.blue,
+  collectible: "#c084fc",
+  cash: "#34d399",
+};
+
+const DEFAULT_HOLDINGS = [];
 
 // ─── STYLES ─────────────────────────────────────────────────────────────────
 const S = {
@@ -42,7 +48,7 @@ const S = {
     background: COLORS.bg.elevated, border: `1px solid ${COLORS.border.secondary}`,
     borderRadius: 8, overflow: "hidden",
   },
-  summaryRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 24 },
+  summaryRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 24 },
   summaryCard: { padding: "14px 16px", background: COLORS.bg.elevated, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 8 },
   cardLabel: { fontSize: 9, color: COLORS.text.dim, textTransform: "uppercase", letterSpacing: "0.5px" },
   cardValue: { fontSize: 18, fontWeight: 600, marginTop: 4 },
@@ -74,11 +80,19 @@ const S = {
     background: COLORS.bg.input, border: `1px solid ${COLORS.border.secondary}`, color: COLORS.text.primary,
     padding: "5px 8px", borderRadius: 4, fontFamily: FONTS.mono, fontSize: 11, outline: "none", width: 100,
   },
+  subtotalRow: {
+    padding: "8px 12px", background: COLORS.bg.primary, borderTop: `1px solid ${COLORS.border.secondary}`,
+    display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 600,
+  },
+  badge: (color) => ({
+    display: "inline-block", padding: "2px 6px", borderRadius: 3, fontSize: 8,
+    fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px",
+    background: color + "22", color: color, border: `1px solid ${color}44`,
+  }),
 };
 
 const pnlColor = (v) => v >= 0 ? COLORS.positive.text : COLORS.negative.text;
 
-// ─── CHART TOOLTIP ──────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -97,9 +111,210 @@ function ChartTooltip({ active, payload, label }) {
   );
 }
 
-// ─── MAIN COMPONENT ─────────────────────────────────────────────────────────
+function Row({ label, children, flex }) {
+  return (
+    <div style={{ flex }}>
+      <div style={{ fontSize: 9, color: COLORS.text.dim, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+// ─── UPDATE VALUE MODAL ─────────────────────────────────────────────────────
+function UpdateValueModal({ holding, onSave, onCancel }) {
+  const [val, setVal] = useState(String(holding.manualPrice || ""));
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }} onClick={onCancel}>
+      <div style={{
+        background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
+        borderRadius: 12, padding: 24, minWidth: 340, fontFamily: FONTS.mono,
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+          Update Value: {holding.label || holding.symbol}
+        </div>
+        <Row label="Current estimated value per unit">
+          <input style={{ ...S.input, width: "100%", marginBottom: 12 }} type="number" step="any"
+            value={val} onChange={e => setVal(e.target.value)} autoFocus
+            onKeyDown={e => e.key === "Enter" && onSave(parseFloat(val) || 0)} />
+        </Row>
+        {holding.costBasis > 0 && val && (
+          <div style={{
+            padding: 10, background: COLORS.bg.primary, borderRadius: 6,
+            border: `1px solid ${COLORS.border.primary}`, marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 9, color: COLORS.text.dim, marginBottom: 4 }}>PREVIEW (per unit)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+              <span style={{ color: COLORS.text.muted }}>Paid: {fmtPrice(holding.costBasis)}</span>
+              <span style={{ color: COLORS.text.muted }}>Now: {fmtPrice(parseFloat(val))}</span>
+            </div>
+            <div style={{
+              fontSize: 14, fontWeight: 700, marginTop: 6,
+              color: pnlColor((parseFloat(val) || 0) - holding.costBasis),
+            }}>
+              {fmtPnl(((parseFloat(val) || 0) - holding.costBasis) * holding.qty)}
+              <span style={{ fontSize: 10, marginLeft: 6 }}>
+                ({fmtPnlPct(holding.costBasis > 0 ? ((parseFloat(val) || 0) - holding.costBasis) / holding.costBasis : 0)})
+              </span>
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...S.btnPrimary, flex: 1, padding: "8px 16px" }}
+            onClick={() => onSave(parseFloat(val) || 0)}>Save</button>
+          <button style={{ ...S.btn, padding: "8px 16px" }} onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADD ASSET MODAL ────────────────────────────────────────────────────────
+function AddAssetModal({ onAdd, onCancel, nextId }) {
+  const [assetClass, setAssetClass] = useState("market");
+  const [symbol, setSymbol] = useState("");
+  const [label, setLabel] = useState("");
+  const [qty, setQty] = useState("1");
+  const [costBasis, setCostBasis] = useState("");
+  const [manualPrice, setManualPrice] = useState("");
+  const [type, setType] = useState("crypto");
+  const [leverage, setLeverage] = useState("1");
+  const [openDate, setOpenDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [notes, setNotes] = useState("");
+  const [grade, setGrade] = useState("");
+  const [cardSet, setCardSet] = useState("");
+
+  const handleAdd = () => {
+    const sym = symbol.trim().toUpperCase() || label.trim().toUpperCase().replace(/\s+/g, "_") || "ITEM";
+    const holding = {
+      id: nextId,
+      assetClass,
+      symbol: sym,
+      label: label.trim() || sym,
+      type: assetClass === "market" ? type : assetClass,
+      exchange: assetClass === "market" ? "auto" : null,
+      qty: parseFloat(qty) || 1,
+      costBasis: assetClass === "cash" ? 0 : (parseFloat(costBasis) || 0),
+      leverage: assetClass === "market" ? (parseFloat(leverage) || 1) : 1,
+      manualPrice: assetClass !== "market" ? (parseFloat(manualPrice) || parseFloat(costBasis) || 0) : null,
+      manualPriceDate: assetClass !== "market" ? new Date().toISOString().split("T")[0] : null,
+      openDate,
+      notes: notes.trim(),
+      ...(assetClass === "collectible" ? { grade: grade.trim(), cardSet: cardSet.trim() } : {}),
+    };
+    onAdd(holding);
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }} onClick={onCancel}>
+      <div style={{
+        background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
+        borderRadius: 12, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
+        maxHeight: "85vh", overflowY: "auto",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+          Add Asset
+        </div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          {Object.entries(ASSET_CLASS_LABELS).map(([key, lbl]) => (
+            <button key={key} onClick={() => setAssetClass(key)} style={{
+              ...S.btn, flex: 1, padding: "8px 12px", textAlign: "center",
+              ...(assetClass === key ? {
+                background: ASSET_CLASS_COLORS[key] + "22",
+                borderColor: ASSET_CLASS_COLORS[key],
+                color: ASSET_CLASS_COLORS[key],
+              } : {}),
+            }}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {assetClass === "market" && (
+            <Row label="Symbol">
+              <input style={{ ...S.input, width: "100%" }} placeholder="BTC, ETH, MSTR..." value={symbol}
+                onChange={e => setSymbol(e.target.value)} autoFocus />
+            </Row>
+          )}
+          {assetClass === "collectible" && (
+            <>
+              <Row label="Card / Item Name">
+                <input style={{ ...S.input, width: "100%" }} placeholder="Charizard EX 105/112" value={label}
+                  onChange={e => setLabel(e.target.value)} autoFocus />
+              </Row>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Row label="Set" flex={1}>
+                  <input style={{ ...S.input, width: "100%" }} placeholder="EX FireRed" value={cardSet}
+                    onChange={e => setCardSet(e.target.value)} />
+                </Row>
+                <Row label="Grade" flex={1}>
+                  <input style={{ ...S.input, width: "100%" }} placeholder="PSA 9" value={grade}
+                    onChange={e => setGrade(e.target.value)} />
+                </Row>
+              </div>
+            </>
+          )}
+          {assetClass === "cash" && (
+            <Row label="Account Label">
+              <input style={{ ...S.input, width: "100%" }} placeholder="Coinbase Margin, Savings..." value={label}
+                onChange={e => setLabel(e.target.value)} autoFocus />
+            </Row>
+          )}
+          {assetClass === "market" && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Row label="Type" flex={1}>
+                <select style={{ ...S.input, width: "100%" }} value={type} onChange={e => setType(e.target.value)}>
+                  <option value="crypto">Crypto</option>
+                  <option value="equity">Equity</option>
+                </select>
+              </Row>
+              <Row label="Leverage" flex={1}>
+                <input style={{ ...S.input, width: "100%" }} type="number" min="1" step="1" value={leverage}
+                  onChange={e => setLeverage(e.target.value)} />
+              </Row>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Row label={assetClass === "cash" ? "Amount (USD)" : "Quantity"} flex={1}>
+              <input style={{ ...S.input, width: "100%" }} type="number" step="any" value={qty}
+                onChange={e => setQty(e.target.value)} />
+            </Row>
+            {assetClass !== "cash" && (
+              <Row label="Cost Basis (per unit)" flex={1}>
+                <input style={{ ...S.input, width: "100%" }} type="number" step="any" value={costBasis}
+                  onChange={e => setCostBasis(e.target.value)} />
+              </Row>
+            )}
+          </div>
+          {assetClass === "collectible" && (
+            <Row label="Current Value (per unit)">
+              <input style={{ ...S.input, width: "100%" }} type="number" step="any" value={manualPrice}
+                onChange={e => setManualPrice(e.target.value)} placeholder="What it's worth today" />
+            </Row>
+          )}
+          <Row label="Date Acquired">
+            <input style={{ ...S.input, width: "100%" }} type="date" value={openDate}
+              onChange={e => setOpenDate(e.target.value)} />
+          </Row>
+          <Row label="Notes (optional)">
+            <input style={{ ...S.input, width: "100%" }} value={notes}
+              onChange={e => setNotes(e.target.value)} placeholder="Any extra info..." />
+          </Row>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button style={{ ...S.btnPrimary, flex: 1, padding: "8px 16px" }} onClick={handleAdd}>+ Add</button>
+            <button style={{ ...S.btn, padding: "8px 16px" }} onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN ───────────────────────────────────────────────────────────────────
 export default function Portfolio({ onNavigateToChart }) {
-  // ── State ──
   const [holdings, setHoldings] = useState(() => loadJSON(KEYS.holdings, DEFAULT_HOLDINGS));
   const [closedTrades, setClosedTrades] = useState(() => loadJSON(KEYS.closedTrades, []));
   const [snapshots, setSnapshots] = useState(() => loadJSON(KEYS.snapshots, []));
@@ -109,107 +324,68 @@ export default function Portfolio({ onNavigateToChart }) {
   const [chartLoading, setChartLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [nextId, setNextId] = useState(() => {
-    const allIds = [
-      ...loadJSON(KEYS.holdings, DEFAULT_HOLDINGS).map(h => h.id),
-      ...loadJSON(KEYS.closedTrades, []).map(t => t.id),
-    ];
+    const allIds = [...loadJSON(KEYS.holdings, DEFAULT_HOLDINGS).map(h => h.id), ...loadJSON(KEYS.closedTrades, []).map(t => t.id)];
     return Math.max(0, ...allIds) + 1;
   });
 
-  // Close trade modal
+  const [showAddModal, setShowAddModal] = useState(false);
   const [closingHolding, setClosingHolding] = useState(null);
+  const [updatingHolding, setUpdatingHolding] = useState(null);
   const [closePrice, setClosePrice] = useState("");
   const [closeDate, setCloseDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [closeQty, setCloseQty] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
-
-  // Add holding form
-  const [newSymbol, setNewSymbol] = useState("");
-  const [newQty, setNewQty] = useState("");
-  const [newCost, setNewCost] = useState("");
-  const [newType, setNewType] = useState("crypto");
-  const [newDate, setNewDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [newLeverage, setNewLeverage] = useState("1");
-
-  // Chart range
-  const [chartRange, setChartRange] = useState(90); // days
-
-  // Import ref
+  const [chartRange, setChartRange] = useState(90);
   const importRef = useRef(null);
 
-  // ── Persist ──
+  const marketHoldings = useMemo(() => holdings.filter(h => (h.assetClass || "market") === "market"), [holdings]);
+  const collectibleHoldings = useMemo(() => holdings.filter(h => h.assetClass === "collectible"), [holdings]);
+  const cashHoldings = useMemo(() => holdings.filter(h => h.assetClass === "cash"), [holdings]);
+
   useEffect(() => { saveJSON(KEYS.holdings, holdings); }, [holdings]);
   useEffect(() => { saveJSON(KEYS.closedTrades, closedTrades); }, [closedTrades]);
   useEffect(() => { saveJSON(KEYS.snapshots, snapshots); }, [snapshots]);
 
-  // ── Fetch live prices ──
   const refreshPrices = useCallback(async () => {
-    if (holdings.length === 0) return;
+    if (marketHoldings.length === 0) { setLastRefresh(new Date()); return; }
     setLoading(true);
     try {
-      const result = await fetchTickers(holdings);
+      const result = await fetchTickers(marketHoldings);
       setPrices(result);
       setLastRefresh(new Date());
-
-      // Take a daily snapshot (max 1 per day)
       const today = new Date().toISOString().split("T")[0];
       const lastSnap = snapshots[snapshots.length - 1];
       if (!lastSnap || lastSnap.date !== today) {
         let totalValue = 0;
-        holdings.forEach(h => {
-          const p = result[h.symbol.toUpperCase()]?.price || 0;
-          const lev = h.leverage || 1;
-          totalValue += (p * h.qty) / lev;
-        });
-        if (totalValue > 0) {
-          const newSnap = { date: today, value: totalValue };
-          setSnapshots(prev => [...prev.slice(-365), newSnap]); // keep 1 year
-        }
+        marketHoldings.forEach(h => { totalValue += ((result[h.symbol.toUpperCase()]?.price || 0) * h.qty) / (h.leverage || 1); });
+        collectibleHoldings.forEach(h => { totalValue += (h.manualPrice || 0) * h.qty; });
+        cashHoldings.forEach(h => { totalValue += h.qty; });
+        if (totalValue > 0) setSnapshots(prev => [...prev.slice(-365), { date: today, value: totalValue }]);
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] refresh failed:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [holdings, snapshots]);
+    } finally { setLoading(false); }
+  }, [marketHoldings, collectibleHoldings, cashHoldings, snapshots]);
 
-  // ── Fetch historical klines for chart ──
   const refreshChart = useCallback(async () => {
-    if (holdings.length === 0) return;
+    if (marketHoldings.length === 0) return;
     setChartLoading(true);
     try {
       const startTime = Date.now() - chartRange * 24 * 60 * 60 * 1000;
-      const requests = holdings.map(h => ({
-        symbol: h.symbol, type: h.type, exchange: h.exchange, startTime,
-      }));
-      const result = await fetchAllKlines(requests);
-      setKlineData(result);
+      const requests = marketHoldings.map(h => ({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime }));
+      setKlineData(await fetchAllKlines(requests));
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] chart data failed:", err);
-    } finally {
-      setChartLoading(false);
-    }
-  }, [holdings, chartRange]);
+    } finally { setChartLoading(false); }
+  }, [marketHoldings, chartRange]);
 
-  // Auto-refresh prices on mount and every 30s
-  useEffect(() => {
-    refreshPrices();
-    const interval = setInterval(refreshPrices, 30000);
-    return () => clearInterval(interval);
-  }, [refreshPrices]);
-
-  // Fetch chart data on mount and range change
+  useEffect(() => { refreshPrices(); const i = setInterval(refreshPrices, 30000); return () => clearInterval(i); }, [refreshPrices]);
   useEffect(() => { refreshChart(); }, [refreshChart]);
 
-  // ── Portfolio value chart data ──
   const chartData = useMemo(() => {
     if (Object.keys(klineData).length === 0) return [];
-
-    // For each asset, get the LAST close price per calendar day
-    // (klines are 4h candles, so multiple per day — we want end-of-day)
-    const assetDayPrice = {}; // { "BTC": { "2026-02-17": 95000, ... }, ... }
-
-    holdings.forEach(h => {
+    const assetDayPrice = {};
+    marketHoldings.forEach(h => {
       const key = h.symbol.toUpperCase();
       const klines = klineData[key];
       if (!klines) return;
@@ -217,84 +393,66 @@ export default function Portfolio({ onNavigateToChart }) {
       klines.forEach(k => {
         const day = k.date?.slice(0, 10);
         if (!day || !k.close) return;
-        // Overwrite with latest candle for this day (klines are sorted by time)
         assetDayPrice[key][day] = k.close;
       });
     });
-
-    // Build unified timeline: for each date, sum (last close × qty / leverage) across holdings
     const allDates = new Set();
-    Object.values(assetDayPrice).forEach(dayMap => {
-      Object.keys(dayMap).forEach(d => allDates.add(d));
-    });
-
-    const totalCost = holdings.reduce((sum, h) => sum + (h.costBasis * h.qty) / (h.leverage || 1), 0);
-
+    Object.values(assetDayPrice).forEach(dm => Object.keys(dm).forEach(d => allDates.add(d)));
+    const collectibleTotal = collectibleHoldings.reduce((s, h) => s + (h.manualPrice || 0) * h.qty, 0);
+    const cashTotal = cashHoldings.reduce((s, h) => s + h.qty, 0);
+    const staticTotal = collectibleTotal + cashTotal;
+    const totalCost = holdings.reduce((sum, h) => {
+      if ((h.assetClass || "market") === "cash") return sum + h.qty;
+      return sum + (h.costBasis * h.qty) / (h.leverage || 1);
+    }, 0);
     return [...allDates].sort().map(date => {
-      let totalValue = 0;
-      const breakdown = {};
-      holdings.forEach(h => {
-        const key = h.symbol.toUpperCase();
-        const price = assetDayPrice[key]?.[date];
-        if (price == null) return;
-        const lev = h.leverage || 1;
-        const val = (price * h.qty) / lev;
-        totalValue += val;
-        breakdown[key] = val;
+      let mv = 0;
+      marketHoldings.forEach(h => {
+        const price = assetDayPrice[h.symbol.toUpperCase()]?.[date];
+        if (price != null) mv += (price * h.qty) / (h.leverage || 1);
       });
-      return { date, totalValue, breakdown, costBasis: totalCost };
+      return { date, totalValue: mv + staticTotal, costBasis: totalCost };
     });
-  }, [klineData, holdings]);
+  }, [klineData, marketHoldings, collectibleHoldings, cashHoldings, holdings]);
 
-  // ── Summary calculations ──
   const summary = useMemo(() => {
-    let totalValue = 0, totalCost = 0;
-    const enriched = holdings.map(h => {
-      const key = h.symbol.toUpperCase();
-      const priceData = prices[key];
-      const currentPrice = priceData?.price || 0;
-      const change24h = priceData?.change || 0;
-      const lev = h.leverage || 1;
-      const marketValue = (currentPrice * h.qty) / lev;
-      const costTotal = (h.costBasis * h.qty) / lev;
-      const pnl = marketValue - costTotal;
-      const pnlPct = costTotal > 0 ? pnl / costTotal : 0;
-      totalValue += marketValue;
-      totalCost += costTotal;
-      return { ...h, currentPrice, change24h, marketValue, costTotal, pnl, pnlPct };
+    let marketValue = 0, marketCost = 0;
+    const enrichedMarket = marketHoldings.map(h => {
+      const pd = prices[h.symbol.toUpperCase()];
+      const cp = pd?.price || 0, ch = pd?.change || 0, lev = h.leverage || 1;
+      const mv = (cp * h.qty) / lev, ct = (h.costBasis * h.qty) / lev;
+      const pnl = mv - ct, pp = ct > 0 ? pnl / ct : 0;
+      marketValue += mv; marketCost += ct;
+      return { ...h, currentPrice: cp, change24h: ch, marketValue: mv, costTotal: ct, pnl, pnlPct: pp };
     });
+    let collectibleValue = 0, collectibleCost = 0;
+    const enrichedCollectibles = collectibleHoldings.map(h => {
+      const cp = h.manualPrice || 0, mv = cp * h.qty, ct = h.costBasis * h.qty;
+      const pnl = mv - ct, pp = ct > 0 ? pnl / ct : 0;
+      collectibleValue += mv; collectibleCost += ct;
+      return { ...h, currentPrice: cp, change24h: 0, marketValue: mv, costTotal: ct, pnl, pnlPct: pp };
+    });
+    const cashValue = cashHoldings.reduce((s, h) => s + h.qty, 0);
+    const totalValue = marketValue + collectibleValue + cashValue;
+    const totalCost = marketCost + collectibleCost + cashValue;
     const totalPnl = totalValue - totalCost;
     const totalPnlPct = totalCost > 0 ? totalPnl / totalCost : 0;
+    const realizedPnl = closedTrades.reduce((s, t) => s + (t.realizedPnl || 0), 0);
+    return { enrichedMarket, enrichedCollectibles, marketValue, marketCost, collectibleValue, collectibleCost, cashValue, totalValue, totalCost, totalPnl, totalPnlPct, realizedPnl };
+  }, [marketHoldings, collectibleHoldings, cashHoldings, prices, closedTrades]);
 
-    // Closed trades summary
-    const realizedPnl = closedTrades.reduce((sum, t) => sum + (t.realizedPnl || 0), 0);
-
-    return { enriched, totalValue, totalCost, totalPnl, totalPnlPct, realizedPnl };
-  }, [holdings, prices, closedTrades]);
-
-  // ── Actions ──
-  const addHolding = useCallback(() => {
-    const sym = newSymbol.trim().toUpperCase();
-    if (!sym) return;
-    setHoldings(prev => [...prev, {
-      id: nextId, symbol: sym, type: newType, exchange: "auto",
-      qty: parseFloat(newQty) || 0, costBasis: parseFloat(newCost) || 0,
-      label: sym, openDate: newDate, leverage: parseFloat(newLeverage) || 1,
-    }]);
-    setNextId(p => p + 1);
-    setNewSymbol(""); setNewQty(""); setNewCost(""); setNewLeverage("1");
-  }, [newSymbol, newQty, newCost, newType, newDate, newLeverage, nextId]);
-
-  const removeHolding = useCallback((id) => {
-    setHoldings(prev => prev.filter(h => h.id !== id));
+  const addHolding = useCallback((h) => { setHoldings(prev => [...prev, h]); setNextId(p => p + 1); setShowAddModal(false); }, []);
+  const removeHolding = useCallback((id) => { setHoldings(prev => prev.filter(h => h.id !== id)); }, []);
+  const updateManualPrice = useCallback((id, np) => {
+    setHoldings(prev => prev.map(h => h.id === id ? { ...h, manualPrice: np, manualPriceDate: new Date().toISOString().split("T")[0] } : h));
+    setUpdatingHolding(null);
   }, []);
+  const updateCashAmount = useCallback((id, nq) => { setHoldings(prev => prev.map(h => h.id === id ? { ...h, qty: nq } : h)); }, []);
 
-  // ── Close Trade ──
   const startCloseTrade = useCallback((holding) => {
     setClosingHolding(holding);
-    const key = holding.symbol.toUpperCase();
-    const livePrice = prices[key]?.price;
-    setClosePrice(livePrice ? String(livePrice) : "");
+    const ac = holding.assetClass || "market";
+    setClosePrice(ac === "market" ? String(prices[holding.symbol.toUpperCase()]?.price || "") : String(holding.manualPrice || ""));
     setCloseQty(String(holding.qty));
     setCloseDate(new Date().toISOString().split("T")[0]);
     setCloseNotes("");
@@ -305,60 +463,33 @@ export default function Portfolio({ onNavigateToChart }) {
     const qty = parseFloat(closeQty) || closingHolding.qty;
     const exitPrice = parseFloat(closePrice) || 0;
     const realizedPnl = (exitPrice - closingHolding.costBasis) * qty;
-
-    const trade = {
-      id: nextId,
-      symbol: closingHolding.symbol,
-      label: closingHolding.label || closingHolding.symbol,
-      type: closingHolding.type,
-      qty,
-      costBasis: closingHolding.costBasis,
-      exitPrice,
-      openDate: closingHolding.openDate || "—",
-      closeDate,
-      realizedPnl,
+    setClosedTrades(prev => [{
+      id: nextId, symbol: closingHolding.symbol, label: closingHolding.label || closingHolding.symbol,
+      type: closingHolding.type, assetClass: closingHolding.assetClass || "market", qty,
+      costBasis: closingHolding.costBasis, exitPrice, openDate: closingHolding.openDate || "—",
+      closeDate, realizedPnl,
       pnlPct: closingHolding.costBasis > 0 ? (exitPrice - closingHolding.costBasis) / closingHolding.costBasis : 0,
       notes: closeNotes,
-    };
-    setClosedTrades(prev => [trade, ...prev]);
+    }, ...prev]);
     setNextId(p => p + 1);
-
-    // If partial close, reduce qty; if full, remove
-    if (qty >= closingHolding.qty) {
-      setHoldings(prev => prev.filter(h => h.id !== closingHolding.id));
-    } else {
-      setHoldings(prev => prev.map(h =>
-        h.id === closingHolding.id ? { ...h, qty: h.qty - qty } : h
-      ));
-    }
+    if (qty >= closingHolding.qty) setHoldings(prev => prev.filter(h => h.id !== closingHolding.id));
+    else setHoldings(prev => prev.map(h => h.id === closingHolding.id ? { ...h, qty: h.qty - qty } : h));
     setClosingHolding(null);
   }, [closingHolding, closePrice, closeQty, closeDate, closeNotes, nextId]);
 
-  const deleteClosedTrade = useCallback((id) => {
-    setClosedTrades(prev => prev.filter(t => t.id !== id));
-  }, []);
+  const deleteClosedTrade = useCallback((id) => { setClosedTrades(prev => prev.filter(t => t.id !== id)); }, []);
 
-  // ── Export / Import ──
   const exportPortfolio = useCallback(() => {
-    const data = {
-      version: 1,
-      exportDate: new Date().toISOString(),
-      holdings,
-      closedTrades,
-      snapshots,
-    };
+    const data = { version: 2, exportDate: new Date().toISOString(), holdings, closedTrades, snapshots };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
+    const a = document.createElement("a"); a.href = url;
     a.download = `optionslab-portfolio-${new Date().toISOString().split("T")[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    a.click(); URL.revokeObjectURL(url);
   }, [holdings, closedTrades, snapshots]);
 
   const importPortfolio = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -366,37 +497,25 @@ export default function Portfolio({ onNavigateToChart }) {
         if (data.holdings) setHoldings(data.holdings);
         if (data.closedTrades) setClosedTrades(data.closedTrades);
         if (data.snapshots) setSnapshots(data.snapshots);
-        // Reset next ID
-        const allIds = [
-          ...(data.holdings || []).map(h => h.id),
-          ...(data.closedTrades || []).map(t => t.id),
-        ];
+        const allIds = [...(data.holdings || []).map(h => h.id), ...(data.closedTrades || []).map(t => t.id)];
         setNextId(Math.max(0, ...allIds) + 1);
-      } catch (err) {
-        alert("Invalid portfolio file");
-      }
+      } catch { alert("Invalid portfolio file"); }
     };
-    reader.readAsText(file);
-    e.target.value = ""; // reset input
+    reader.readAsText(file); e.target.value = "";
   }, []);
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // RENDER
-  // ────────────────────────────────────────────────────────────────────────────
+  // ── RENDER ──
   return (
     <div style={S.container}>
-      {/* ── HEADER ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.display, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>
-            Portfolio Tracker
-          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.display, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>Portfolio Tracker</div>
           <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 4 }}>
-            {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading..."}
-            {loading && " • Refreshing..."}
+            {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading..."}{loading && " • Refreshing..."}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
+          <button style={S.btnPrimary} onClick={() => setShowAddModal(true)}>+ Add Asset</button>
           <button style={S.btn} onClick={refreshPrices} disabled={loading}>⟳ Refresh</button>
           <button style={S.btn} onClick={exportPortfolio}>↓ Export</button>
           <button style={S.btn} onClick={() => importRef.current?.click()}>↑ Import</button>
@@ -404,60 +523,46 @@ export default function Portfolio({ onNavigateToChart }) {
         </div>
       </div>
 
-      {/* ── SUMMARY CARDS ── */}
+      {/* Summary */}
       <div style={S.summaryRow}>
-        <div style={S.summaryCard}>
-          <div style={S.cardLabel}>Portfolio Value</div>
-          <div style={{ ...S.cardValue, color: COLORS.text.primary }}>{fmtDollar(summary.totalValue)}</div>
-        </div>
-        <div style={S.summaryCard}>
-          <div style={S.cardLabel}>Total Cost</div>
-          <div style={{ ...S.cardValue, color: COLORS.text.muted }}>{fmtDollar(summary.totalCost)}</div>
-        </div>
-        <div style={S.summaryCard}>
-          <div style={S.cardLabel}>Unrealized P&L</div>
-          <div style={{ ...S.cardValue, color: pnlColor(summary.totalPnl) }}>
-            {fmtDollar(summary.totalPnl)} ({fmtPnlPct(summary.totalPnlPct)})
+        {[
+          { label: "Total Net Worth", value: fmtDollar(summary.totalValue), color: COLORS.text.primary },
+          { label: "Market Assets", value: fmtDollar(summary.marketValue), color: ASSET_CLASS_COLORS.market },
+          { label: "Collectibles", value: fmtDollar(summary.collectibleValue), color: ASSET_CLASS_COLORS.collectible },
+          { label: "Cash & Margin", value: fmtDollar(summary.cashValue), color: ASSET_CLASS_COLORS.cash },
+          { label: "Unrealized P&L", value: `${fmtDollar(summary.totalPnl)} (${fmtPnlPct(summary.totalPnlPct)})`, color: pnlColor(summary.totalPnl) },
+          { label: "Realized P&L", value: fmtDollar(summary.realizedPnl), color: pnlColor(summary.realizedPnl) },
+        ].map((c, i) => (
+          <div key={i} style={S.summaryCard}>
+            <div style={S.cardLabel}>{c.label}</div>
+            <div style={{ ...S.cardValue, color: c.color }}>{c.value}</div>
           </div>
-        </div>
-        <div style={S.summaryCard}>
-          <div style={S.cardLabel}>Realized P&L</div>
-          <div style={{ ...S.cardValue, color: pnlColor(summary.realizedPnl) }}>
-            {fmtDollar(summary.realizedPnl)}
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* ── PORTFOLIO VALUE CHART ── */}
+      {/* Chart */}
       <div style={{ marginBottom: 24 }}>
         <div style={S.sectionTitle}>
-          <span>Portfolio Performance</span>
-          <div style={S.divider} />
+          <span>Portfolio Performance</span><div style={S.divider} />
           <div style={{ display: "flex", gap: 2 }}>
             {[1, 7, 30, 90, 180, 365].map(d => (
               <button key={d} onClick={() => setChartRange(d)} style={{
                 ...S.btn, padding: "3px 10px", fontSize: 9,
                 ...(chartRange === d ? { background: COLORS.accent.blueBg, borderColor: COLORS.accent.blueBorder, color: COLORS.accent.blue } : {}),
-              }}>
-                {d}d
-              </button>
+              }}>{d}d</button>
             ))}
           </div>
         </div>
         <div style={{ ...S.card, padding: "16px 8px 8px" }}>
           {chartLoading && chartData.length === 0 ? (
-            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>
-              Loading chart data...
-            </div>
+            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>Loading chart data...</div>
           ) : chartData.length === 0 ? (
-            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>
-              No historical data available yet. Add holdings and refresh.
-            </div>
+            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>No historical data. Add market assets and refresh.</div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                 <defs>
-                  <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={COLORS.accent.blue} stopOpacity={0.3} />
                     <stop offset="100%" stopColor={COLORS.accent.blue} stopOpacity={0.02} />
                   </linearGradient>
@@ -465,66 +570,46 @@ export default function Portfolio({ onNavigateToChart }) {
                 <CartesianGrid stroke={COLORS.border.primary} strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fill: COLORS.text.dim, fontSize: 9 }} tickLine={false}
                   axisLine={{ stroke: COLORS.border.primary }}
-                  tickFormatter={(d) => { const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()}`; }}
+                  tickFormatter={d => { const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()}`; }}
                   interval="preserveStartEnd" minTickGap={60} />
                 <YAxis tick={{ fill: COLORS.text.dim, fontSize: 9 }} tickLine={false}
                   axisLine={{ stroke: COLORS.border.primary }}
-                  tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`}
+                  tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`}
                   domain={["auto", "auto"]} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="totalValue" name="Portfolio"
-                  stroke={COLORS.accent.blue} strokeWidth={2}
-                  fill="url(#portfolioGradient)" />
-                <Line type="monotone" dataKey="costBasis" name="Cost Basis"
-                  stroke={COLORS.text.dim} strokeWidth={1} strokeDasharray="6 3" dot={false} />
+                <Area type="monotone" dataKey="totalValue" name="Portfolio" stroke={COLORS.accent.blue} strokeWidth={2} fill="url(#portfolioGrad)" />
+                <Line type="monotone" dataKey="costBasis" name="Cost Basis" stroke={COLORS.text.dim} strokeWidth={1} strokeDasharray="6 3" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
       </div>
 
-      {/* ── OPEN POSITIONS TABLE ── */}
+      {/* Market Assets */}
       <div style={{ marginBottom: 24 }}>
-        <div style={S.sectionTitle}><span>Open Positions</span><div style={S.divider} /></div>
+        <div style={S.sectionTitle}>
+          <span style={{ color: ASSET_CLASS_COLORS.market }}>Market Assets</span><div style={S.divider} />
+          <span style={{ fontSize: 10, color: COLORS.text.muted }}>{fmtDollar(summary.marketValue)}</span>
+        </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead>
-              <tr>
-                {["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h", "Value", "P&L", "P&L %", "Actions"].map(col => (
-                  <th key={col} style={S.th}>{col}</th>
-                ))}
-              </tr>
-            </thead>
+            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h", "Value", "P&L", "P&L %", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
             <tbody>
-              {summary.enriched.length === 0 ? (
-                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 24 }}>No open positions</td></tr>
-              ) : summary.enriched.map(h => (
+              {summary.enrichedMarket.length === 0 ? (
+                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No market assets</td></tr>
+              ) : summary.enrichedMarket.map(h => (
                 <tr key={h.id}>
-                  <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>
-                    {h.label || h.symbol}
-                    <span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{h.symbol}</span>
-                  </td>
+                  <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}<span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{h.symbol}</span></td>
                   <td style={S.td}>{h.qty}</td>
-                  <td style={{ ...S.td, color: (h.leverage || 1) > 1 ? COLORS.warning.text : COLORS.text.dim }}>
-                    {(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}
-                  </td>
+                  <td style={{ ...S.td, color: (h.leverage || 1) > 1 ? COLORS.warning.text : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}</td>
                   <td style={S.td}>{fmtPrice(h.costBasis)}</td>
-                  <td style={{ ...S.td, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>
-                    {h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}
-                  </td>
-                  <td style={{ ...S.td, color: pnlColor(h.change24h) }}>
-                    {h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}
-                  </td>
+                  <td style={{ ...S.td, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
+                  <td style={{ ...S.td, color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
                   <td style={S.td}>{h.currentPrice > 0 ? fmtDollar(h.marketValue) : "—"}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnl), fontWeight: 500 }}>
-                    {h.currentPrice > 0 ? fmtPnl(h.pnl) : "—"}
-                  </td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>
-                    {h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}
-                  </td>
+                  <td style={{ ...S.td, color: pnlColor(h.pnl), fontWeight: 500 }}>{h.currentPrice > 0 ? fmtPnl(h.pnl) : "—"}</td>
+                  <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>{h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}</td>
                   <td style={{ ...S.td, whiteSpace: "nowrap" }}>
-                    <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Close</button>
-                    {" "}
+                    <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Close</button>{" "}
                     <button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button>
                   </td>
                 </tr>
@@ -534,72 +619,76 @@ export default function Portfolio({ onNavigateToChart }) {
         </div>
       </div>
 
-      {/* ── ADD HOLDING FORM ── */}
-      <div style={{
-        marginBottom: 24, padding: 16, background: COLORS.bg.elevated,
-        border: `1px solid ${COLORS.border.secondary}`, borderRadius: 8,
-        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-      }}>
-        <span style={{ fontSize: 10, color: COLORS.text.dim }}>Add Position:</span>
-        <input style={S.input} placeholder="Symbol" value={newSymbol}
-          onChange={e => setNewSymbol(e.target.value)} onKeyDown={e => e.key === "Enter" && addHolding()} />
-        <select style={{ ...S.input, width: 80 }} value={newType} onChange={e => setNewType(e.target.value)}>
-          <option value="crypto">Crypto</option>
-          <option value="equity">Equity</option>
-        </select>
-        <input style={{ ...S.input, width: 80 }} type="number" placeholder="Qty" value={newQty}
-          onChange={e => setNewQty(e.target.value)} />
-        <input style={{ ...S.input, width: 100 }} type="number" placeholder="Cost basis" value={newCost}
-          onChange={e => setNewCost(e.target.value)} step="any" />
-        <input style={{ ...S.input, width: 55 }} type="number" placeholder="Lev" value={newLeverage}
-          onChange={e => setNewLeverage(e.target.value)} min="1" step="1" title="Leverage (1 = spot)" />
-        <input style={{ ...S.input, width: 120 }} type="date" value={newDate}
-          onChange={e => setNewDate(e.target.value)} />
-        <button style={S.btnPrimary} onClick={addHolding}>+ Add</button>
-      </div>
-
-      {/* ── CLOSED TRADES TABLE ── */}
+      {/* Collectibles */}
       <div style={{ marginBottom: 24 }}>
-        <div style={S.sectionTitle}><span>Closed Trades</span><div style={S.divider} /></div>
+        <div style={S.sectionTitle}>
+          <span style={{ color: ASSET_CLASS_COLORS.collectible }}>Collectibles</span><div style={S.divider} />
+          <span style={{ fontSize: 10, color: COLORS.text.muted }}>{fmtDollar(summary.collectibleValue)}</span>
+        </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead>
-              <tr>
-                {["Asset", "Qty", "Entry Price", "Exit Price", "Open Date", "Close Date", "Realized P&L", "Return", "Notes", ""].map(col => (
-                  <th key={col} style={S.th}>{col}</th>
-                ))}
-              </tr>
-            </thead>
+            <thead><tr>{["Item", "Qty", "Grade", "Paid", "Current Value", "Total Value", "P&L", "P&L %", "Updated", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
             <tbody>
-              {closedTrades.length === 0 ? (
-                <tr>
-                  <td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 24 }}>
-                    No closed trades yet. Use the "Close" button on open positions to log exits.
+              {summary.enrichedCollectibles.length === 0 ? (
+                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No collectibles yet. Click "+ Add Asset" to add Pokemon cards.</td></tr>
+              ) : summary.enrichedCollectibles.map(h => (
+                <tr key={h.id}>
+                  <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary, maxWidth: 200 }}>
+                    <div>{h.label || h.symbol}</div>
+                    {h.cardSet && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 2 }}>{h.cardSet}</div>}
+                    {h.notes && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 1, fontStyle: "italic" }}>{h.notes}</div>}
+                  </td>
+                  <td style={S.td}>{h.qty}</td>
+                  <td style={S.td}>{h.grade ? <span style={S.badge(ASSET_CLASS_COLORS.collectible)}>{h.grade}</span> : "—"}</td>
+                  <td style={S.td}>{fmtPrice(h.costBasis)}</td>
+                  <td style={{ ...S.td, color: COLORS.text.primary, cursor: "pointer", textDecoration: "underline dotted" }}
+                    onClick={() => setUpdatingHolding(h)} title="Click to update">{fmtPrice(h.manualPrice || 0)}</td>
+                  <td style={S.td}>{fmtDollar(h.marketValue)}</td>
+                  <td style={{ ...S.td, color: pnlColor(h.pnl), fontWeight: 500 }}>{fmtPnl(h.pnl)}</td>
+                  <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>{fmtPnlPct(h.pnlPct)}</td>
+                  <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim }}>{h.manualPriceDate || "—"}</td>
+                  <td style={{ ...S.td, whiteSpace: "nowrap" }}>
+                    <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Sell</button>{" "}
+                    <button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button>
                   </td>
                 </tr>
-              ) : closedTrades.map(t => (
-                <tr key={t.id}>
-                  <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>
-                    {t.label || t.symbol}
-                    <span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{t.symbol}</span>
-                  </td>
-                  <td style={S.td}>{t.qty}</td>
-                  <td style={S.td}>{fmtPrice(t.costBasis)}</td>
-                  <td style={S.td}>{fmtPrice(t.exitPrice)}</td>
-                  <td style={{ ...S.td, fontSize: 10 }}>{t.openDate}</td>
-                  <td style={{ ...S.td, fontSize: 10 }}>{t.closeDate}</td>
-                  <td style={{ ...S.td, color: pnlColor(t.realizedPnl), fontWeight: 600 }}>
-                    {fmtPnl(t.realizedPnl)}
-                  </td>
-                  <td style={{ ...S.td, color: pnlColor(t.pnlPct) }}>
-                    {fmtPnlPct(t.pnlPct)}
-                  </td>
-                  <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {t.notes || "—"}
-                  </td>
+              ))}
+            </tbody>
+          </table>
+          {summary.enrichedCollectibles.length > 0 && (
+            <div style={S.subtotalRow}>
+              <span style={{ color: ASSET_CLASS_COLORS.collectible }}>{summary.enrichedCollectibles.length} item{summary.enrichedCollectibles.length > 1 ? "s" : ""}</span>
+              <div style={{ display: "flex", gap: 16 }}>
+                <span style={{ color: COLORS.text.dim }}>Cost: {fmtDollar(summary.collectibleCost)}</span>
+                <span style={{ color: ASSET_CLASS_COLORS.collectible }}>Value: {fmtDollar(summary.collectibleValue)}</span>
+                <span style={{ color: pnlColor(summary.collectibleValue - summary.collectibleCost), fontWeight: 600 }}>{fmtPnl(summary.collectibleValue - summary.collectibleCost)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Cash */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={S.sectionTitle}>
+          <span style={{ color: ASSET_CLASS_COLORS.cash }}>Cash & Margin Accounts</span><div style={S.divider} />
+          <span style={{ fontSize: 10, color: COLORS.text.muted }}>{fmtDollar(summary.cashValue)}</span>
+        </div>
+        <div style={S.card}>
+          <table style={S.table}>
+            <thead><tr>{["Account", "Balance", "Notes", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
+            <tbody>
+              {cashHoldings.length === 0 ? (
+                <tr><td colSpan={4} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No cash accounts.</td></tr>
+              ) : cashHoldings.map(h => (
+                <tr key={h.id}>
+                  <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}</td>
                   <td style={S.td}>
-                    <button style={S.btnDanger} onClick={() => deleteClosedTrade(t.id)}>✕</button>
+                    <input style={{ ...S.input, width: 120, border: "none", background: "transparent", color: ASSET_CLASS_COLORS.cash, fontWeight: 600, fontSize: 12, padding: 0 }}
+                      type="number" step="any" value={h.qty} onChange={e => updateCashAmount(h.id, parseFloat(e.target.value) || 0)} />
                   </td>
+                  <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim }}>{h.notes || "—"}</td>
+                  <td style={S.td}><button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button></td>
                 </tr>
               ))}
             </tbody>
@@ -607,69 +696,64 @@ export default function Portfolio({ onNavigateToChart }) {
         </div>
       </div>
 
-      {/* ── CLOSE TRADE MODAL ── */}
+      {/* Closed Trades */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={S.sectionTitle}><span>Closed Trades</span><div style={S.divider} /></div>
+        <div style={S.card}>
+          <table style={S.table}>
+            <thead><tr>{["Asset", "Type", "Qty", "Entry", "Exit", "Open", "Close", "Realized P&L", "Return", "Notes", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
+            <tbody>
+              {closedTrades.length === 0 ? (
+                <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 24 }}>No closed trades yet.</td></tr>
+              ) : closedTrades.map(t => (
+                <tr key={t.id}>
+                  <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{t.label || t.symbol}</td>
+                  <td style={S.td}><span style={S.badge(ASSET_CLASS_COLORS[t.assetClass || "market"])}>{(t.assetClass || "market").slice(0, 6)}</span></td>
+                  <td style={S.td}>{t.qty}</td>
+                  <td style={S.td}>{fmtPrice(t.costBasis)}</td>
+                  <td style={S.td}>{fmtPrice(t.exitPrice)}</td>
+                  <td style={{ ...S.td, fontSize: 10 }}>{t.openDate}</td>
+                  <td style={{ ...S.td, fontSize: 10 }}>{t.closeDate}</td>
+                  <td style={{ ...S.td, color: pnlColor(t.realizedPnl), fontWeight: 600 }}>{fmtPnl(t.realizedPnl)}</td>
+                  <td style={{ ...S.td, color: pnlColor(t.pnlPct) }}>{fmtPnlPct(t.pnlPct)}</td>
+                  <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{t.notes || "—"}</td>
+                  <td style={S.td}><button style={S.btnDanger} onClick={() => deleteClosedTrade(t.id)}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modals */}
+      {showAddModal && <AddAssetModal onAdd={addHolding} onCancel={() => setShowAddModal(false)} nextId={nextId} />}
+      {updatingHolding && <UpdateValueModal holding={updatingHolding} onSave={(p) => updateManualPrice(updatingHolding.id, p)} onCancel={() => setUpdatingHolding(null)} />}
       {closingHolding && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }} onClick={() => setClosingHolding(null)}>
-          <div style={{
-            background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
-            borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 440,
-            fontFamily: FONTS.mono,
-          }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setClosingHolding(null)}>
+          <div style={{ background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 440, fontFamily: FONTS.mono }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
-              Close Position: {closingHolding.label || closingHolding.symbol}
+              {closingHolding.assetClass === "collectible" ? "Sell" : "Close"}: {closingHolding.label || closingHolding.symbol}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 9, color: COLORS.text.dim, textTransform: "uppercase", marginBottom: 4 }}>Qty to close (max {closingHolding.qty})</div>
-                <input style={{ ...S.input, width: "100%" }} type="number" value={closeQty}
-                  onChange={e => setCloseQty(e.target.value)} max={closingHolding.qty} step="any" />
-              </div>
-              <div>
-                <div style={{ fontSize: 9, color: COLORS.text.dim, textTransform: "uppercase", marginBottom: 4 }}>Exit Price</div>
-                <input style={{ ...S.input, width: "100%" }} type="number" value={closePrice}
-                  onChange={e => setClosePrice(e.target.value)} step="any" placeholder="Sale price per unit" />
-              </div>
-              <div>
-                <div style={{ fontSize: 9, color: COLORS.text.dim, textTransform: "uppercase", marginBottom: 4 }}>Close Date</div>
-                <input style={{ ...S.input, width: "100%" }} type="date" value={closeDate}
-                  onChange={e => setCloseDate(e.target.value)} />
-              </div>
-              <div>
-                <div style={{ fontSize: 9, color: COLORS.text.dim, textTransform: "uppercase", marginBottom: 4 }}>Notes (optional)</div>
-                <input style={{ ...S.input, width: "100%" }} type="text" value={closeNotes}
-                  onChange={e => setCloseNotes(e.target.value)} placeholder="Stop loss hit, took profits, etc." />
-              </div>
-
-              {/* Preview */}
+              <Row label={`Qty (max ${closingHolding.qty})`}><input style={{ ...S.input, width: "100%" }} type="number" value={closeQty} onChange={e => setCloseQty(e.target.value)} step="any" /></Row>
+              <Row label="Exit / Sale Price (per unit)"><input style={{ ...S.input, width: "100%" }} type="number" value={closePrice} onChange={e => setClosePrice(e.target.value)} step="any" /></Row>
+              <Row label="Close Date"><input style={{ ...S.input, width: "100%" }} type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} /></Row>
+              <Row label="Notes (optional)"><input style={{ ...S.input, width: "100%" }} value={closeNotes} onChange={e => setCloseNotes(e.target.value)} placeholder="Reason..." /></Row>
               {closePrice && (
-                <div style={{
-                  padding: 12, background: COLORS.bg.primary, borderRadius: 6,
-                  border: `1px solid ${COLORS.border.primary}`,
-                }}>
+                <div style={{ padding: 12, background: COLORS.bg.primary, borderRadius: 6, border: `1px solid ${COLORS.border.primary}` }}>
                   <div style={{ fontSize: 9, color: COLORS.text.dim, marginBottom: 6 }}>PREVIEW</div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                    <span style={{ color: COLORS.text.muted }}>Cost: {fmtDollar(closingHolding.costBasis)} × {closeQty || closingHolding.qty}</span>
-                    <span style={{ color: COLORS.text.muted }}>Exit: {fmtDollar(parseFloat(closePrice))} × {closeQty || closingHolding.qty}</span>
+                    <span style={{ color: COLORS.text.muted }}>Cost: {fmtPrice(closingHolding.costBasis)} × {closeQty || closingHolding.qty}</span>
+                    <span style={{ color: COLORS.text.muted }}>Exit: {fmtPrice(parseFloat(closePrice))} × {closeQty || closingHolding.qty}</span>
                   </div>
-                  <div style={{
-                    fontSize: 16, fontWeight: 700, marginTop: 8,
-                    color: pnlColor((parseFloat(closePrice) - closingHolding.costBasis) * (parseFloat(closeQty) || closingHolding.qty)),
-                  }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8, color: pnlColor((parseFloat(closePrice) - closingHolding.costBasis) * (parseFloat(closeQty) || closingHolding.qty)) }}>
                     {fmtPnl((parseFloat(closePrice) - closingHolding.costBasis) * (parseFloat(closeQty) || closingHolding.qty))}
                   </div>
                 </div>
               )}
-
               <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                <button style={{ ...S.btnPrimary, flex: 1, padding: "8px 16px" }} onClick={confirmCloseTrade}>
-                  Confirm Close
-                </button>
-                <button style={{ ...S.btn, padding: "8px 16px" }} onClick={() => setClosingHolding(null)}>
-                  Cancel
-                </button>
+                <button style={{ ...S.btnPrimary, flex: 1, padding: "8px 16px" }} onClick={confirmCloseTrade}>Confirm</button>
+                <button style={{ ...S.btn, padding: "8px 16px" }} onClick={() => setClosingHolding(null)}>Cancel</button>
               </div>
             </div>
           </div>
