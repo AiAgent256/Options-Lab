@@ -424,8 +424,11 @@ export default function Portfolio({ onNavigateToChart }) {
       const ct = (h.costBasis * h.qty) / lev;   // margin cost (capital deployed)
       const pnl = (cp - h.costBasis) * h.qty;   // notional P&L — what actually hits your account
       const pp = ct > 0 ? pnl / ct : 0;         // return on margin
+      // 24h dollar P&L: notional price change × qty (full exposure, not margin-adjusted)
+      const prevPrice = ch !== 0 ? cp / (1 + ch / 100) : cp;
+      const pnl24h = (cp - prevPrice) * h.qty;  // notional 24h dollar move
       marketValue += mv; marketCost += ct; marketPnl += pnl;
-      return { ...h, currentPrice: cp, change24h: ch, marketValue: mv, costTotal: ct, pnl, pnlPct: pp };
+      return { ...h, currentPrice: cp, change24h: ch, pnl24h, marketValue: mv, costTotal: ct, pnl, pnlPct: pp };
     });
     let collectibleValue = 0, collectibleCost = 0;
     const enrichedCollectibles = collectibleHoldings.map(h => {
@@ -605,10 +608,10 @@ export default function Portfolio({ onNavigateToChart }) {
         </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h", "Value", "P&L", "P&L %", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h %", "24h $", "Value", "P&L", "P&L %", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
             <tbody>
               {summary.enrichedMarket.length === 0 ? (
-                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No market assets</td></tr>
+                <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No market assets</td></tr>
               ) : summary.enrichedMarket.map(h => (
                 <tr key={h.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}<span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{h.symbol}</span></td>
@@ -617,6 +620,7 @@ export default function Portfolio({ onNavigateToChart }) {
                   <td style={S.td}>{fmtPrice(h.costBasis)}</td>
                   <td style={{ ...S.td, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
                   <td style={{ ...S.td, color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
+                  <td style={{ ...S.td, color: pnlColor(h.pnl24h), fontWeight: 500 }}>{h.pnl24h ? fmtPnl(h.pnl24h) : "—"}</td>
                   <td style={S.td}>{h.currentPrice > 0 ? fmtDollar(h.marketValue) : "—"}</td>
                   <td style={{ ...S.td, color: pnlColor(h.pnl), fontWeight: 500 }}>{h.currentPrice > 0 ? fmtPnl(h.pnl) : "—"}</td>
                   <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>{h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}</td>
