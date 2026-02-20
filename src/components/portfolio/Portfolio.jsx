@@ -3,24 +3,7 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
 import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
 import { COLORS, FONTS } from "../../utils/constants";
-
-// ─── PERSISTENCE ────────────────────────────────────────────────────────────
-const KEYS = {
-  holdings: "optlab:portfolio:holdings",
-  closedTrades: "optlab:portfolio:closed",
-  snapshots: "optlab:portfolio:snapshots",
-};
-
-function loadJSON(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
-}
-
-function saveJSON(key, data) {
-  try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* full */ }
-}
+import { loadPortfolio, savePortfolio, syncFromCloud, forcePushToCloud, forcePullFromCloud } from "../../lib/persistence";
 
 const ASSET_CLASS_LABELS = {
   market: "Market Assets",
@@ -315,16 +298,17 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────
 export default function Portfolio({ onNavigateToChart }) {
-  const [holdings, setHoldings] = useState(() => loadJSON(KEYS.holdings, DEFAULT_HOLDINGS));
-  const [closedTrades, setClosedTrades] = useState(() => loadJSON(KEYS.closedTrades, []));
-  const [snapshots, setSnapshots] = useState(() => loadJSON(KEYS.snapshots, []));
+  const [holdings, setHoldings] = useState(() => loadPortfolio().holdings);
+  const [closedTrades, setClosedTrades] = useState(() => loadPortfolio().closedTrades);
+  const [snapshots, setSnapshots] = useState(() => loadPortfolio().snapshots);
   const [prices, setPrices] = useState({});
   const [klineData, setKlineData] = useState({});
   const [loading, setLoading] = useState(false);
   const [chartLoading, setChartLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [nextId, setNextId] = useState(() => {
-    const allIds = [...loadJSON(KEYS.holdings, DEFAULT_HOLDINGS).map(h => h.id), ...loadJSON(KEYS.closedTrades, []).map(t => t.id)];
+    const init = loadPortfolio();
+    const allIds = [...init.holdings.map(h => h.id), ...init.closedTrades.map(t => t.id)];
     return Math.max(0, ...allIds) + 1;
   });
 
@@ -342,9 +326,25 @@ export default function Portfolio({ onNavigateToChart }) {
   const collectibleHoldings = useMemo(() => holdings.filter(h => h.assetClass === "collectible"), [holdings]);
   const cashHoldings = useMemo(() => holdings.filter(h => h.assetClass === "cash"), [holdings]);
 
-  useEffect(() => { saveJSON(KEYS.holdings, holdings); }, [holdings]);
-  useEffect(() => { saveJSON(KEYS.closedTrades, closedTrades); }, [closedTrades]);
-  useEffect(() => { saveJSON(KEYS.snapshots, snapshots); }, [snapshots]);
+  useEffect(() => { savePortfolio(holdings, closedTrades, snapshots); }, [holdings, closedTrades, snapshots]);
+
+  // Sync from cloud on mount — if cloud has newer data, update state
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | synced | error
+  useEffect(() => {
+    setSyncStatus("syncing");
+    syncFromCloud().then(cloud => {
+      if (cloud) {
+        setHoldings(cloud.holdings);
+        setClosedTrades(cloud.closedTrades);
+        setSnapshots(cloud.snapshots);
+        const allIds = [...cloud.holdings.map(h => h.id), ...cloud.closedTrades.map(t => t.id)];
+        setNextId(Math.max(0, ...allIds) + 1);
+        setSyncStatus("synced");
+      } else {
+        setSyncStatus("synced");
+      }
+    }).catch(() => setSyncStatus("error"));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshPrices = useCallback(async () => {
     if (marketHoldings.length === 0) { setLastRefresh(new Date()); return; }
@@ -514,12 +514,21 @@ export default function Portfolio({ onNavigateToChart }) {
         <div>
           <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.display, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>Portfolio Tracker</div>
           <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 4 }}>
-            {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading..."}{loading && " • Refreshing..."}
+            {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading..."}
+            {loading && " • Refreshing..."}
+            {syncStatus === "syncing" && " • Syncing..."}
+            {syncStatus === "synced" && " • ☁ Synced"}
+            {syncStatus === "error" && " • ⚠ Offline"}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button style={S.btnPrimary} onClick={() => setShowAddModal(true)}>+ Add Asset</button>
           <button style={S.btn} onClick={refreshPrices} disabled={loading}>⟳ Refresh</button>
+          <button style={S.btn} onClick={async () => {
+            setSyncStatus("syncing");
+            const ok = await forcePushToCloud();
+            setSyncStatus(ok ? "synced" : "error");
+          }} title="Push data to cloud">☁ Sync</button>
           <button style={S.btn} onClick={exportPortfolio}>↓ Export</button>
           <button style={S.btn} onClick={() => importRef.current?.click()}>↑ Import</button>
           <input ref={importRef} type="file" accept=".json" style={{ display: "none" }} onChange={importPortfolio} />
