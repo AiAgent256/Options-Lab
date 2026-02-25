@@ -4,13 +4,15 @@
     { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
     { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
     { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
-    { "src": "api/yahoo/[...path].js", "use": "@vercel/node" }
+    { "src": "api/yahoo/[...path].js", "use": "@vercel/node" },
+    { "src": "api/news/feed.js", "use": "@vercel/node" }
   ],
   "routes": [
     { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
     { "src": "/api/coingecko/(.*)", "dest": "/api/coingecko/[...path].js" },
     { "src": "/api/phemex/(.*)", "dest": "/api/phemex/[...path].js" },
     { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
+    { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
