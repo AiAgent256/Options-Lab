@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from "react"
 import { createChart } from "lightweight-charts"
 import {
-  parseChartSymbol, subscribeCoinbase, subscribeYahoo,
-  fetchCoinbaseCandles, fetchYahooCandles, fetchCoingeckoCandles,
+  parseChartSymbol, subscribeCoinbase, subscribePhemex, subscribeYahoo,
+  fetchCoinbaseCandles, fetchPhemexCandles, fetchYahooCandles, fetchCoingeckoCandles,
 } from "../lib/liveData"
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D"]
@@ -17,8 +17,7 @@ function fmtPrice(p) {
 
 function fmtChange(c) {
   if (c == null) return ""
-  const sign = c >= 0 ? "+" : ""
-  return `${sign}${c.toFixed(2)}%`
+  return `${c >= 0 ? "+" : ""}${c.toFixed(2)}%`
 }
 
 const GRANULARITY = { "1m": 60, "5m": 300, "15m": 900, "1H": 3600, "4H": 14400, "1D": 86400 }
@@ -33,8 +32,8 @@ function LiveChart({ symbol }) {
   const [tf, setTf] = useState("1H")
   const [price, setPrice] = useState(null)
   const [change24h, setChange24h] = useState(null)
-  const [status, setStatus] = useState("loading") // loading, live, delayed, error
-  const [candleCount, setCandleCount] = useState(0)
+  const [status, setStatus] = useState("loading") // loading, live, polling, delayed, error
+  const [source, setSource] = useState("") // "CB", "PH", "CG", "YF"
 
   const parsed = parseChartSymbol(symbol)
 
@@ -87,55 +86,59 @@ function LiveChart({ symbol }) {
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
     })
-    chart.priceScale("vol").applyOptions({
-      scaleMargins: { top: 0.82, bottom: 0 },
-    })
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
 
     chartRef.current = chart
     candleRef.current = candleSeries
     volRef.current = volumeSeries
 
-    // Resize observer
     const ro = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect
       if (width > 0 && height > 0) chart.resize(width, height)
     })
     ro.observe(el)
 
-    return () => {
-      ro.disconnect()
-      chart.remove()
-      chartRef.current = null
-      candleRef.current = null
-      volRef.current = null
-    }
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null; volRef.current = null }
   }, [])
 
-  // ─── LOAD HISTORICAL DATA ───
+  // ─── LOAD HISTORICAL CANDLES (with fallback chain) ───
   useEffect(() => {
     let cancelled = false
     setStatus("loading")
-    setCandleCount(0)
+    setSource("")
 
     async function load() {
       let candles = []
+      let src = ""
 
-      if (parsed.exchange === "coinbase" && parsed.productId) {
-        candles = await fetchCoinbaseCandles(parsed.productId, tf)
-        // Fallback to CoinGecko if Coinbase returned nothing
+      if (parsed.exchange === "yahoo") {
+        candles = await fetchYahooCandles(parsed.ticker, tf)
+        src = "YF"
+      } else {
+        // Crypto fallback chain: Coinbase → Phemex → CoinGecko
+        if (parsed.cbProduct) {
+          candles = await fetchCoinbaseCandles(parsed.cbProduct, tf)
+          if (candles.length > 0) src = "CB"
+        }
+        if (candles.length === 0 && parsed.phProduct) {
+          candles = await fetchPhemexCandles(parsed.phProduct, tf)
+          if (candles.length > 0) src = "PH"
+        }
         if (candles.length === 0 && parsed.coingeckoId) {
           candles = await fetchCoingeckoCandles(parsed.coingeckoId, tf)
+          if (candles.length > 0) src = "CG"
         }
-      } else if (parsed.exchange === "yahoo" && parsed.ticker) {
-        candles = await fetchYahooCandles(parsed.ticker, tf)
       }
 
       if (cancelled) return
 
       if (candles.length === 0) {
         setStatus("error")
+        setSource("—")
         return
       }
+
+      setSource(src)
 
       if (candleRef.current) {
         candleRef.current.setData(candles.map(c => ({
@@ -152,7 +155,6 @@ function LiveChart({ symbol }) {
       const last = candles[candles.length - 1]
       lastCandleRef.current = last
       if (last) setPrice(last.close)
-      setCandleCount(candles.length)
 
       if (chartRef.current) chartRef.current.timeScale().fitContent()
     }
@@ -161,67 +163,84 @@ function LiveChart({ symbol }) {
     return () => { cancelled = true }
   }, [symbol, tf])
 
-  // ─── LIVE UPDATES ───
+  // ─── LIVE UPDATES (with fallback) ───
   useEffect(() => {
     if (!parsed) return
+    const unsubs = []
 
-    if (parsed.exchange === "coinbase" && parsed.productId) {
-      const unsub = subscribeCoinbase(parsed.productId, (tick) => {
-        const p = parseFloat(tick.price)
-        const open24h = parseFloat(tick.open_24h || 0)
-        if (!p || p <= 0) return
-
-        setPrice(p)
-        setStatus("live")
-        if (open24h > 0) setChange24h(((p - open24h) / open24h) * 100)
-
-        // Update current candle
-        const gran = GRANULARITY[tf] || 3600
-        const bucket = Math.floor(Date.now() / 1000 / gran) * gran
-        const last = lastCandleRef.current
-
-        if (last && last.time === bucket) {
-          last.close = p
-          last.high = Math.max(last.high, p)
-          last.low = Math.min(last.low, p)
-          if (candleRef.current) candleRef.current.update(last)
-        } else {
-          const newCandle = { time: bucket, open: p, high: p, low: p, close: p, volume: 0 }
-          lastCandleRef.current = newCandle
-          if (candleRef.current) candleRef.current.update(newCandle)
-          if (volRef.current) volRef.current.update({ time: bucket, value: 0, color: "rgba(34,197,94,0.15)" })
-        }
-      })
-      return unsub
-    }
-
-    if (parsed.exchange === "yahoo" && parsed.ticker) {
+    if (parsed.exchange === "yahoo") {
       setStatus("delayed")
-      const unsub = subscribeYahoo(parsed.ticker, (tick) => {
+      unsubs.push(subscribeYahoo(parsed.ticker, (tick) => {
         setPrice(tick.price)
         setChange24h(tick.change)
         setStatus("delayed")
-
-        // Update last candle close
-        const last = lastCandleRef.current
-        if (last && candleRef.current) {
-          last.close = tick.price
-          last.high = Math.max(last.high, tick.price)
-          last.low = Math.min(last.low, tick.price)
-          candleRef.current.update(last)
-        }
-      }, 15000)
-      return unsub
+        updateLastCandle(tick.price, tf)
+      }, 15000))
+      return () => unsubs.forEach(u => u())
     }
+
+    // Crypto: try Coinbase WS first, always run Phemex polling as backup
+    let hasCbData = false
+
+    if (parsed.cbProduct) {
+      unsubs.push(subscribeCoinbase(parsed.cbProduct, (tick) => {
+        const p = parseFloat(tick.price)
+        const open24h = parseFloat(tick.open_24h || 0)
+        if (!p || p <= 0) return
+        hasCbData = true
+        setPrice(p)
+        setStatus("live")
+        setSource("CB")
+        if (open24h > 0) setChange24h(((p - open24h) / open24h) * 100)
+        updateLastCandle(p, tf)
+      }))
+    }
+
+    if (parsed.phProduct) {
+      unsubs.push(subscribePhemex(parsed.phProduct, (tick) => {
+        // Only use Phemex data if Coinbase isn't streaming
+        if (hasCbData) return
+        setPrice(tick.price)
+        setChange24h(tick.change)
+        setStatus("polling")
+        setSource("PH")
+        updateLastCandle(tick.price, tf)
+      }, 5000))
+    }
+
+    // If neither CB nor PH, we just have candle data
+    if (!parsed.cbProduct && !parsed.phProduct) {
+      setStatus("delayed")
+    }
+
+    return () => unsubs.forEach(u => u())
   }, [symbol, tf])
 
-  const statusColor = status === "live" ? "#22c55e" : status === "delayed" ? "#f59e0b" : status === "error" ? "#ef4444" : "#3b82f6"
-  const statusLabel = status === "live" ? "LIVE" : status === "delayed" ? "15s" : status === "error" ? "ERR" : "..."
+  function updateLastCandle(p, timeframe) {
+    const gran = GRANULARITY[timeframe] || 3600
+    const bucket = Math.floor(Date.now() / 1000 / gran) * gran
+    const last = lastCandleRef.current
+
+    if (last && last.time === bucket) {
+      last.close = p
+      last.high = Math.max(last.high, p)
+      last.low = Math.min(last.low, p)
+      if (candleRef.current) candleRef.current.update(last)
+    } else {
+      const newCandle = { time: bucket, open: p, high: p, low: p, close: p, volume: 0 }
+      lastCandleRef.current = newCandle
+      if (candleRef.current) candleRef.current.update(newCandle)
+      if (volRef.current) volRef.current.update({ time: bucket, value: 0, color: "rgba(34,197,94,0.15)" })
+    }
+  }
+
+  const statusColor = status === "live" ? "#22c55e" : status === "polling" ? "#3b82f6" : status === "delayed" ? "#f59e0b" : status === "error" ? "#ef4444" : "#6a7080"
+  const statusLabel = status === "live" ? "LIVE" : status === "polling" ? "5s" : status === "delayed" ? "15s" : status === "error" ? "ERR" : "..."
   const changeColor = change24h >= 0 ? "#22c55e" : "#ef4444"
 
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%", position: "relative", background: "#080a0f" }}>
-      {/* ─── OVERLAY: Price + Symbol ─── */}
+      {/* ─── Price overlay ─── */}
       <div style={{
         position: "absolute", top: 6, left: 8, zIndex: 10, pointerEvents: "none",
         display: "flex", flexDirection: "column", gap: 2,
@@ -240,6 +259,14 @@ function LiveChart({ symbol }) {
           }}>
             {statusLabel}
           </span>
+          {source && (
+            <span style={{
+              fontSize: 7, fontWeight: 500, color: "#3a4050",
+              fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
+            }}>
+              {source}
+            </span>
+          )}
         </div>
         {price != null && (
           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -261,7 +288,7 @@ function LiveChart({ symbol }) {
         )}
       </div>
 
-      {/* ─── OVERLAY: Timeframe selector ─── */}
+      {/* ─── Timeframe selector ─── */}
       <div style={{
         position: "absolute", bottom: 28, left: 8, zIndex: 10,
         display: "flex", gap: 2, pointerEvents: "auto",
