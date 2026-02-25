@@ -377,7 +377,7 @@ export default function Portfolio({ onNavigateToChart }) {
     setChartLoading(true);
     try {
       const startTime = Date.now() - chartRange * 24 * 60 * 60 * 1000;
-      const resolution = chartRange <= 7 ? "1h" : "4h";
+      const resolution = chartRange <= 7 ? "1h" : "1d";
       const requests = marketHoldings.map(h => ({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime }));
       setKlineData(await fetchAllKlines(requests, resolution));
     } catch (err) {
