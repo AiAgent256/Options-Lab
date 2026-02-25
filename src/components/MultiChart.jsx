@@ -24,6 +24,7 @@ const QUICK_SYMBOLS = [
   { label: "SOL", sym: "COINBASE:SOLUSD", cat: "crypto" },
   { label: "HYPE", sym: "COINBASE:HYPEUSD", cat: "crypto" },
   { label: "ZRO", sym: "COINBASE:ZROUSD", cat: "crypto" },
+  { label: "CC", sym: "PHEMEX:CCUSDT", cat: "crypto" },
   { label: "MSTR", sym: "NASDAQ:MSTR", cat: "equity" },
   { label: "SMR", sym: "NYSE:SMR", cat: "equity" },
   { label: "AAOI", sym: "NASDAQ:AAOI", cat: "equity" },
@@ -62,12 +63,8 @@ export default function MultiChart() {
   const handleCustomAdd = useCallback((e) => {
     if (e.key === "Enter" && customAdd.trim()) {
       const sym = customAdd.trim().toUpperCase()
-      let fullSym = sym
-      if (!sym.includes(":")) {
-        if (sym.endsWith("USD") || sym.endsWith("USDT")) fullSym = `COINBASE:${sym}`
-        else fullSym = `NASDAQ:${sym}`
-      }
-      addChart(fullSym)
+      // Let parseChartSymbol auto-detect the right exchange
+      addChart(sym)
       setCustomAdd("")
     }
   }, [customAdd, addChart])
@@ -89,8 +86,7 @@ export default function MultiChart() {
 
   const handleEditKeyDown = useCallback((e, id) => {
     if (e.key === "Enter" && editSymbol.trim()) {
-      const sym = editSymbol.trim().toUpperCase()
-      updateSymbol(id, sym.includes(":") ? sym : `NASDAQ:${sym}`)
+      updateSymbol(id, editSymbol.trim().toUpperCase())
     }
     if (e.key === "Escape") { setEditingId(null); setEditSymbol("") }
   }, [editSymbol, updateSymbol])
