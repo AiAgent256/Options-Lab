@@ -413,11 +413,19 @@ export default function Portfolio({ onNavigateToChart }) {
       if ((h.assetClass || "market") === "cash") return sum + h.qty;
       return sum + (h.costBasis * h.qty) / (h.leverage || 1);
     }, 0);
-    return [...allTimes].sort().map(t => {
+    const sortedTimes = [...allTimes].sort();
+
+    // Build the chart with carry-forward: if an asset has no data for a given time,
+    // use its most recent known price (equities close overnight/weekends)
+    const lastKnown = {};
+    return sortedTimes.map(t => {
       let mv = 0;
       marketHoldings.forEach(h => {
-        const price = assetTimePrice[h.symbol.toUpperCase()]?.[t];
-        if (price != null) mv += (price * h.qty) / (h.leverage || 1);
+        const key = h.symbol.toUpperCase();
+        const price = assetTimePrice[key]?.[t];
+        if (price != null) lastKnown[key] = price;
+        const usePrice = price ?? lastKnown[key];
+        if (usePrice != null) mv += (usePrice * h.qty) / (h.leverage || 1);
       });
       return { date: t, totalValue: mv + staticTotal, costBasis: totalCost };
     });
