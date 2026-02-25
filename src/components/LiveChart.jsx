@@ -312,3 +312,4 @@ function LiveChart({ symbol }) {
 }
 
 export default memo(LiveChart)
+
