@@ -85,13 +85,13 @@ async function coingeckoQuote(key) {
   } catch (e) { if(import.meta.env.DEV) console.warn(`[CG] quote err:`, e.message); return null }
 }
 
-async function coingeckoKlines(key, startTimeMs) {
+async function coingeckoKlines(key, startTimeMs, resolution = "4h") {
   const id = coingeckoId(key)
   const days = Math.ceil((Date.now() - startTimeMs) / (1000 * 60 * 60 * 24))
   try {
     // CoinGecko: days <= 90 → hourly granularity, > 90 → daily
     const url = `/api/coingecko/coins/${id}/market_chart?vs_currency=usd&days=${Math.min(days, 365)}`
-    if(import.meta.env.DEV) console.log(`[CG] klines ${key} → ${id} (${days}d)`)
+    if(import.meta.env.DEV) console.log(`[CG] klines ${key} → ${id} (${days}d, ${resolution})`)
     const res = await fetch(url)
     if (!res.ok) { if(import.meta.env.DEV) console.warn(`[CG] klines ${key} → ${res.status}`); return [] }
     const data = await res.json()
@@ -100,7 +100,16 @@ async function coingeckoKlines(key, startTimeMs) {
 
     if(import.meta.env.DEV) console.log(`[CG] klines ${key}: ${prices.length} raw points`)
 
-    // Group into 4h buckets (same approach as Yahoo)
+    if (resolution === "1h") {
+      // Return raw hourly data without grouping
+      const klines = prices
+        .filter(([ts, close]) => close && close > 0)
+        .map(([ts, close]) => ({ ts, date: new Date(ts).toISOString().slice(0, 13), close }))
+      if(import.meta.env.DEV) console.log(`[CG] klines ${key}: ${klines.length} 1h bars`)
+      return klines
+    }
+
+    // Group into 4h buckets
     const by4h = {}
     for (const [ts, close] of prices) {
       if (!close || close <= 0) continue
@@ -204,9 +213,9 @@ async function coinbase24h(cbSymbol) {
   } catch { return 0 }
 }
 
-// Coinbase candles — 1h (3600s), grouped into 4h client-side
-async function coinbaseCandles(cbSymbol, startTimeMs) {
-  if(import.meta.env.DEV) console.log(`[CB] candles 1h ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+// Coinbase candles — 1h (3600s), optionally grouped into 4h client-side
+async function coinbaseCandles(cbSymbol, startTimeMs, resolution = "4h") {
+  if(import.meta.env.DEV) console.log(`[CB] candles ${resolution} ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   const results = []
   const granularity = 3600
   let endSec = Math.floor(Date.now() / 1000)
@@ -239,6 +248,13 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
       endSec = batchStart - granularity
       if (data.length < 250) break
     } catch (e) { if(import.meta.env.DEV) console.warn(`[CB] candles err:`, e.message); break }
+  }
+
+  if (resolution === "1h") {
+    // Return raw 1h candles without grouping
+    const sorted = results.filter(r => r.close > 0).sort((a, b) => a.ts - b.ts)
+    if(import.meta.env.DEV) console.log(`[CB] candles ${cbSymbol}: ${sorted.length} 1h bars`)
+    return sorted
   }
 
   // Group 1h into 4h buckets
@@ -300,19 +316,20 @@ async function phemexTicker(phSymbol) {
   } catch (e) { if(import.meta.env.DEV) console.warn(`[PH] ticker err:`, e.message); return null }
 }
 
-// Phemex klines — 4h (14400s), tries multiple endpoint patterns
-async function phemexKlines(phSymbol, startTimeMs, tickerPrice) {
-  if(import.meta.env.DEV) console.log(`[PH] klines 4h ${phSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+// Phemex klines — 4h (14400s) or 1h (3600s), tries multiple endpoint patterns
+async function phemexKlines(phSymbol, startTimeMs, tickerPrice, resolution = "4h") {
+  const resSec = resolution === "1h" ? 3600 : 14400
+  if(import.meta.env.DEV) console.log(`[PH] klines ${resolution} ${phSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
 
   const fromSec = Math.floor(startTimeMs / 1000)
   const toSec = Math.floor(Date.now() / 1000)
 
   const endpoints = [
-    `/api/phemex/exchange/public/md/v2/kline?symbol=${phSymbol}&resolution=14400&from=${fromSec}&to=${toSec}`,
-    `/api/phemex/md/v2/kline?symbol=${phSymbol}&resolution=14400&from=${fromSec}&to=${toSec}`,
-    `/api/phemex/exchange/public/md/kline?symbol=${phSymbol}&resolution=14400&from=${fromSec}&to=${toSec}`,
-    `/api/phemex/md/kline?symbol=${phSymbol}&resolution=14400&from=${fromSec}&to=${toSec}`,
-    `/api/phemex/exchange/public/md/v2/kline/last?symbol=${phSymbol}&resolution=14400&from=${fromSec}&to=${toSec}`,
+    `/api/phemex/exchange/public/md/v2/kline?symbol=${phSymbol}&resolution=${resSec}&from=${fromSec}&to=${toSec}`,
+    `/api/phemex/md/v2/kline?symbol=${phSymbol}&resolution=${resSec}&from=${fromSec}&to=${toSec}`,
+    `/api/phemex/exchange/public/md/kline?symbol=${phSymbol}&resolution=${resSec}&from=${fromSec}&to=${toSec}`,
+    `/api/phemex/md/kline?symbol=${phSymbol}&resolution=${resSec}&from=${fromSec}&to=${toSec}`,
+    `/api/phemex/exchange/public/md/v2/kline/last?symbol=${phSymbol}&resolution=${resSec}&from=${fromSec}&to=${toSec}`,
   ]
 
   for (const url of endpoints) {
@@ -405,14 +422,13 @@ async function yahooQuote(ticker) {
 }
 
 // Yahoo Finance klines — 1h candles, grouped into 4h
-async function yahooKlines(ticker, startTimeMs) {
-  if(import.meta.env.DEV) console.log(`[YF] klines ${ticker} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
+async function yahooKlines(ticker, startTimeMs, resolution = "4h") {
+  if(import.meta.env.DEV) console.log(`[YF] klines ${resolution} ${ticker} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   try {
     const now = Math.floor(Date.now() / 1000)
     const start = Math.floor(startTimeMs / 1000)
 
     // Yahoo allows max ~730 days for 1h interval
-    // Use period1/period2 for exact range
     const url = `/api/yahoo/v8/finance/chart/${ticker}?interval=1h&period1=${start}&period2=${now}`
     if(import.meta.env.DEV) console.log(`[YF] fetching: ${ticker} period1=${start} period2=${now}`)
     const res = await fetch(url)
@@ -439,11 +455,13 @@ async function yahooKlines(ticker, startTimeMs) {
       const close = closes[i]
       if (close == null || close <= 0) continue
       const ts = timestamps[i] * 1000
-      raw.push({
-        ts,
-        date: new Date(ts).toISOString().slice(0, 13),
-        close,
-      })
+      raw.push({ ts, date: new Date(ts).toISOString().slice(0, 13), close })
+    }
+
+    if (resolution === "1h") {
+      raw.sort((a, b) => a.ts - b.ts)
+      if(import.meta.env.DEV) console.log(`[YF] klines ${ticker}: ${raw.length} 1h bars`)
+      return raw
     }
 
     // Group 1h into 4h buckets
@@ -516,11 +534,12 @@ export async function fetchTickers(holdings) {
 }
 
 /**
- * Fetch historical 4h klines for holdings.
+ * Fetch historical klines for holdings.
  * Each request: { symbol, type, startTime (ms) }
+ * resolution: "1h" for intraday, "4h" for multi-day (default)
  * Returns: { [normalizedKey]: [{ ts, date, close }] }
  */
-export async function fetchAllKlines(requests) {
+export async function fetchAllKlines(requests, resolution = "4h") {
   const results = {}
   const seen = new Set()
   const tasks = []
@@ -538,27 +557,27 @@ export async function fetchAllKlines(requests) {
       if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key} → ${resolved.exchange}:${resolved.sym}`)
 
       if (resolved.exchange === "coingecko") {
-        klines = await coingeckoKlines(resolved.key, req.startTime)
+        klines = await coingeckoKlines(resolved.key, req.startTime, resolution)
         if (klines.length > 0) if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko: ${klines.length} bars`)
       } else if (resolved.exchange === "coinbase") {
-        klines = await coinbaseCandles(resolved.sym, req.startTime)
+        klines = await coinbaseCandles(resolved.sym, req.startTime, resolution)
         if (klines.length === 0) {
           // FALLBACK: Coinbase Exchange API doesn't have this product → CoinGecko
           if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: CB failed, trying CoinGecko`)
-          klines = await coingeckoKlines(resolved.key, req.startTime)
+          klines = await coingeckoKlines(resolved.key, req.startTime, resolution)
           if (klines.length > 0) if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
         }
       } else if (resolved.exchange === "phemex") {
         const ticker = await phemexTicker(resolved.sym)
-        klines = await phemexKlines(resolved.sym, req.startTime, ticker?.price || 0)
+        klines = await phemexKlines(resolved.sym, req.startTime, ticker?.price || 0, resolution)
         if (klines.length === 0) {
           // FALLBACK: Phemex doesn't have this product → CoinGecko
           if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: PH failed, trying CoinGecko`)
-          klines = await coingeckoKlines(resolved.key, req.startTime)
+          klines = await coingeckoKlines(resolved.key, req.startTime, resolution)
           if (klines.length > 0) if(import.meta.env.DEV) console.log(`[Klines] ${resolved.key}: ✅ CoinGecko fallback: ${klines.length} bars`)
         }
       } else if (resolved.exchange === "yahoo") {
-        klines = await yahooKlines(resolved.sym, req.startTime)
+        klines = await yahooKlines(resolved.sym, req.startTime, resolution)
       }
 
       if (klines.length > 0) {

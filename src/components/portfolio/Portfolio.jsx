@@ -377,8 +377,9 @@ export default function Portfolio({ onNavigateToChart }) {
     setChartLoading(true);
     try {
       const startTime = Date.now() - chartRange * 24 * 60 * 60 * 1000;
+      const resolution = chartRange <= 7 ? "1h" : "4h";
       const requests = marketHoldings.map(h => ({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime }));
-      setKlineData(await fetchAllKlines(requests));
+      setKlineData(await fetchAllKlines(requests, resolution));
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] chart data failed:", err);
     } finally { setChartLoading(false); }
@@ -389,20 +390,22 @@ export default function Portfolio({ onNavigateToChart }) {
 
   const chartData = useMemo(() => {
     if (Object.keys(klineData).length === 0) return [];
-    const assetDayPrice = {};
+    const useHourly = chartRange <= 7;
+    const assetTimePrice = {};
     marketHoldings.forEach(h => {
       const key = h.symbol.toUpperCase();
       const klines = klineData[key];
       if (!klines) return;
-      if (!assetDayPrice[key]) assetDayPrice[key] = {};
+      if (!assetTimePrice[key]) assetTimePrice[key] = {};
       klines.forEach(k => {
-        const day = k.date?.slice(0, 10);
-        if (!day || !k.close) return;
-        assetDayPrice[key][day] = k.close;
+        // For short ranges, use full hourly key; for long ranges, group by day
+        const timeKey = useHourly ? k.date : k.date?.slice(0, 10);
+        if (!timeKey || !k.close) return;
+        assetTimePrice[key][timeKey] = k.close;
       });
     });
-    const allDates = new Set();
-    Object.values(assetDayPrice).forEach(dm => Object.keys(dm).forEach(d => allDates.add(d)));
+    const allTimes = new Set();
+    Object.values(assetTimePrice).forEach(dm => Object.keys(dm).forEach(d => allTimes.add(d)));
     const collectibleTotal = collectibleHoldings.reduce((s, h) => s + (h.manualPrice || 0) * h.qty, 0);
     const cashTotal = cashHoldings.reduce((s, h) => s + h.qty, 0);
     const staticTotal = collectibleTotal + cashTotal;
@@ -410,15 +413,15 @@ export default function Portfolio({ onNavigateToChart }) {
       if ((h.assetClass || "market") === "cash") return sum + h.qty;
       return sum + (h.costBasis * h.qty) / (h.leverage || 1);
     }, 0);
-    return [...allDates].sort().map(date => {
+    return [...allTimes].sort().map(t => {
       let mv = 0;
       marketHoldings.forEach(h => {
-        const price = assetDayPrice[h.symbol.toUpperCase()]?.[date];
+        const price = assetTimePrice[h.symbol.toUpperCase()]?.[t];
         if (price != null) mv += (price * h.qty) / (h.leverage || 1);
       });
-      return { date, totalValue: mv + staticTotal, costBasis: totalCost };
+      return { date: t, totalValue: mv + staticTotal, costBasis: totalCost };
     });
-  }, [klineData, marketHoldings, collectibleHoldings, cashHoldings, holdings]);
+  }, [klineData, marketHoldings, collectibleHoldings, cashHoldings, holdings, chartRange]);
 
   const summary = useMemo(() => {
     let marketValue = 0, marketCost = 0, marketPnl = 0;
@@ -596,8 +599,19 @@ export default function Portfolio({ onNavigateToChart }) {
                 <CartesianGrid stroke={COLORS.border.primary} strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fill: COLORS.text.dim, fontSize: 9 }} tickLine={false}
                   axisLine={{ stroke: COLORS.border.primary }}
-                  tickFormatter={d => { const dt = new Date(d); return `${dt.getMonth() + 1}/${dt.getDate()}`; }}
-                  interval="preserveStartEnd" minTickGap={60} />
+                  tickFormatter={d => {
+                    if (d.length > 10) {
+                      // Hourly format: "2026-02-20T14"
+                      const dt = new Date(d + ":00:00Z");
+                      if (chartRange <= 1) {
+                        return dt.toLocaleTimeString([], { hour: "numeric", hour12: true });
+                      }
+                      return `${dt.getMonth() + 1}/${dt.getDate()} ${dt.toLocaleTimeString([], { hour: "numeric", hour12: true })}`;
+                    }
+                    const dt = new Date(d);
+                    return `${dt.getMonth() + 1}/${dt.getDate()}`;
+                  }}
+                  interval="preserveStartEnd" minTickGap={chartRange <= 1 ? 30 : 60} />
                 <YAxis tick={{ fill: COLORS.text.dim, fontSize: 9 }} tickLine={false}
                   axisLine={{ stroke: COLORS.border.primary }}
                   tickFormatter={v => privacyMode ? "•••" : (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`)}
