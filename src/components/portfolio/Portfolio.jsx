@@ -414,21 +414,32 @@ export default function Portfolio({ onNavigateToChart }) {
       return sum + (h.costBasis * h.qty) / (h.leverage || 1);
     }, 0);
     const sortedTimes = [...allTimes].sort();
+    const assetKeys = marketHoldings.map(h => h.symbol.toUpperCase()).filter(k => assetTimePrice[k]);
+    const numAssets = assetKeys.length;
 
-    // Build the chart with carry-forward: if an asset has no data for a given time,
-    // use its most recent known price (equities close overnight/weekends)
+    // Carry-forward: track last known price per asset
     const lastKnown = {};
-    return sortedTimes.map(t => {
+    let allAssetsSeenOnce = false;
+
+    const raw = sortedTimes.map(t => {
       let mv = 0;
+      let assetsWithData = 0;
       marketHoldings.forEach(h => {
         const key = h.symbol.toUpperCase();
         const price = assetTimePrice[key]?.[t];
         if (price != null) lastKnown[key] = price;
         const usePrice = price ?? lastKnown[key];
-        if (usePrice != null) mv += (usePrice * h.qty) / (h.leverage || 1);
+        if (usePrice != null) {
+          mv += (usePrice * h.qty) / (h.leverage || 1);
+          assetsWithData++;
+        }
       });
-      return { date: t, totalValue: mv + staticTotal, costBasis: totalCost };
+      if (assetsWithData >= numAssets) allAssetsSeenOnce = true;
+      return { date: t, totalValue: mv + staticTotal, costBasis: totalCost, complete: allAssetsSeenOnce };
     });
+
+    // Only show chart from the point where all assets have been seen
+    return raw.filter(d => d.complete);
   }, [klineData, marketHoldings, collectibleHoldings, cashHoldings, holdings, chartRange]);
 
   const summary = useMemo(() => {
