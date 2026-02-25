@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, memo } from "react"
 import LiveChart from "./LiveChart"
+import NewsPanel from "./NewsPanel"
 
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "optlab:multicharts"
@@ -175,6 +176,7 @@ export default function MultiChart() {
         gridTemplateColumns: `repeat(${cols}, 1fr)`,
         gridAutoRows: "1fr",
         gap: "1px", background: "rgba(255,255,255,0.025)", overflow: "hidden",
+        minHeight: 0,
       }}>
         {charts.map(chart => (
           <div key={chart.id} style={{ position: "relative", background: "#080a0f", overflow: "hidden", minHeight: 0 }}>
@@ -216,6 +218,11 @@ export default function MultiChart() {
             <div style={{ fontSize: 10, color: "#1e2535", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>Add Chart</div>
           </div>
         )}
+      </div>
+
+      {/* ─── NEWS FEED ─── */}
+      <div style={{ height: 220, flexShrink: 0 }}>
+        <NewsPanel />
       </div>
     </div>
   )
