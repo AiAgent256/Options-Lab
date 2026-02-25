@@ -6,9 +6,10 @@
  *   Perp crypto    → Phemex   (api.phemex.com)
  *   Equities/ETFs  → Yahoo Finance (query1.finance.yahoo.com)
  * 
- * Coinbase klines: 1h granularity grouped into 4h
- * Phemex klines: 4h granularity
- * Yahoo klines: 1h granularity grouped into 4h
+ * Coinbase klines: 1h / 4h / 1d (86400s) resolution
+ * Phemex klines: 1h / 4h / 1d (86400s) resolution
+ * Yahoo klines: 1h / 4h / 1d resolution
+ * CoinGecko klines: 1h / 4h / 1d resolution
  * All requests proxy through Vite dev server to avoid CORS.
  */
 
@@ -99,6 +100,19 @@ async function coingeckoKlines(key, startTimeMs, resolution = "4h") {
     if (prices.length === 0) { if(import.meta.env.DEV) console.warn(`[CG] klines ${key}: no prices`); return [] }
 
     if(import.meta.env.DEV) console.log(`[CG] klines ${key}: ${prices.length} raw points`)
+
+    if (resolution === "1d") {
+      // Group into daily buckets — last close per day
+      const byDay = {}
+      for (const [ts, close] of prices) {
+        if (!close || close <= 0) continue
+        const day = new Date(ts).toISOString().slice(0, 10)
+        if (!byDay[day] || ts > byDay[day].ts) byDay[day] = { ts, date: day, close }
+      }
+      const klines = Object.values(byDay).sort((a, b) => a.ts - b.ts)
+      if(import.meta.env.DEV) console.log(`[CG] klines ${key}: ${klines.length} daily bars`)
+      return klines
+    }
 
     if (resolution === "1h") {
       // Return raw hourly data without grouping
@@ -213,11 +227,12 @@ async function coinbase24h(cbSymbol) {
   } catch { return 0 }
 }
 
-// Coinbase candles — 1h (3600s), optionally grouped into 4h client-side
+// Coinbase candles — 1h (3600s), optionally grouped into 4h or 1d client-side
 async function coinbaseCandles(cbSymbol, startTimeMs, resolution = "4h") {
   if(import.meta.env.DEV) console.log(`[CB] candles ${resolution} ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   const results = []
-  const granularity = 3600
+  // Use daily granularity for 1d resolution (much fewer API calls)
+  const granularity = resolution === "1d" ? 86400 : 3600
   let endSec = Math.floor(Date.now() / 1000)
   const startSec = Math.floor(startTimeMs / 1000)
   let batch = 0
@@ -243,11 +258,26 @@ async function coinbaseCandles(cbSymbol, startTimeMs, resolution = "4h") {
       for (const c of data) {
         if (!Array.isArray(c) || c.length < 5) continue
         const ts = c[0] * 1000
-        results.push({ ts, date: new Date(ts).toISOString().slice(0, 13), close: parseFloat(c[4]) })
+        const dateKey = resolution === "1d"
+          ? new Date(ts).toISOString().slice(0, 10)
+          : new Date(ts).toISOString().slice(0, 13)
+        results.push({ ts, date: dateKey, close: parseFloat(c[4]) })
       }
       endSec = batchStart - granularity
       if (data.length < 250) break
     } catch (e) { if(import.meta.env.DEV) console.warn(`[CB] candles err:`, e.message); break }
+  }
+
+  if (resolution === "1d") {
+    // Daily: deduplicate by date (keep last candle per day)
+    const byDay = {}
+    for (const r of results) {
+      if (r.close <= 0) continue
+      if (!byDay[r.date] || r.ts > byDay[r.date].ts) byDay[r.date] = r
+    }
+    const sorted = Object.values(byDay).sort((a, b) => a.ts - b.ts)
+    if(import.meta.env.DEV) console.log(`[CB] candles ${cbSymbol}: ${sorted.length} daily bars`)
+    return sorted
   }
 
   if (resolution === "1h") {
@@ -316,9 +346,9 @@ async function phemexTicker(phSymbol) {
   } catch (e) { if(import.meta.env.DEV) console.warn(`[PH] ticker err:`, e.message); return null }
 }
 
-// Phemex klines — 4h (14400s) or 1h (3600s), tries multiple endpoint patterns
+// Phemex klines — 4h (14400s), 1h (3600s), or 1d (86400s), tries multiple endpoint patterns
 async function phemexKlines(phSymbol, startTimeMs, tickerPrice, resolution = "4h") {
-  const resSec = resolution === "1h" ? 3600 : 14400
+  const resSec = resolution === "1d" ? 86400 : resolution === "1h" ? 3600 : 14400
   if(import.meta.env.DEV) console.log(`[PH] klines ${resolution} ${phSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
 
   const fromSec = Math.floor(startTimeMs / 1000)
@@ -353,7 +383,8 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice, resolution = "4h
         results = rows.map(row => {
           const ts = (row[0] || 0) * 1000
           const close = parseFloat(row[6]) || parseFloat(row[5]) || parseFloat(row[4]) || 0
-          return { ts, date: new Date(ts).toISOString().slice(0, 13), close }
+          const dateKey = resolution === "1d" ? new Date(ts).toISOString().slice(0, 10) : new Date(ts).toISOString().slice(0, 13)
+          return { ts, date: dateKey, close }
         })
       } else {
         results = rows.map(row => {
@@ -363,7 +394,8 @@ async function phemexKlines(phSymbol, startTimeMs, tickerPrice, resolution = "4h
             const raw = parseInt(row.closeEp)
             close = raw > 1e8 ? raw / 1e4 : raw / 100
           }
-          return { ts, date: new Date(ts).toISOString().slice(0, 13), close }
+          const dateKey = resolution === "1d" ? new Date(ts).toISOString().slice(0, 10) : new Date(ts).toISOString().slice(0, 13)
+          return { ts, date: dateKey, close }
         })
       }
 
@@ -421,16 +453,17 @@ async function yahooQuote(ticker) {
   } catch (e) { if(import.meta.env.DEV) console.warn(`[YF] quote err:`, e.message); return null }
 }
 
-// Yahoo Finance klines — 1h candles, grouped into 4h
+// Yahoo Finance klines — 1h candles (grouped into 4h), or 1d daily candles
 async function yahooKlines(ticker, startTimeMs, resolution = "4h") {
   if(import.meta.env.DEV) console.log(`[YF] klines ${resolution} ${ticker} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   try {
     const now = Math.floor(Date.now() / 1000)
     const start = Math.floor(startTimeMs / 1000)
 
-    // Yahoo allows max ~730 days for 1h interval
-    const url = `/api/yahoo/v8/finance/chart/${ticker}?interval=1h&period1=${start}&period2=${now}`
-    if(import.meta.env.DEV) console.log(`[YF] fetching: ${ticker} period1=${start} period2=${now}`)
+    // Use daily interval for 1d resolution (returns full history), 1h for intraday
+    const yahooInterval = resolution === "1d" ? "1d" : "1h"
+    const url = `/api/yahoo/v8/finance/chart/${ticker}?interval=${yahooInterval}&period1=${start}&period2=${now}`
+    if(import.meta.env.DEV) console.log(`[YF] fetching: ${ticker} interval=${yahooInterval} period1=${start} period2=${now}`)
     const res = await fetch(url)
     if (!res.ok) {
       const body = await res.text().catch(() => "")
@@ -447,7 +480,7 @@ async function yahooKlines(ticker, startTimeMs, resolution = "4h") {
 
     if (timestamps.length === 0) { if(import.meta.env.DEV) console.warn(`[YF] klines ${ticker}: no timestamps`); return [] }
 
-    if(import.meta.env.DEV) console.log(`[YF] klines ${ticker}: ${timestamps.length} raw 1h candles`)
+    if(import.meta.env.DEV) console.log(`[YF] klines ${ticker}: ${timestamps.length} raw ${yahooInterval} candles`)
 
     // Build raw candles
     const raw = []
@@ -455,7 +488,22 @@ async function yahooKlines(ticker, startTimeMs, resolution = "4h") {
       const close = closes[i]
       if (close == null || close <= 0) continue
       const ts = timestamps[i] * 1000
-      raw.push({ ts, date: new Date(ts).toISOString().slice(0, 13), close })
+      // For daily resolution, use YYYY-MM-DD date key; for intraday, use YYYY-MM-DDTHH
+      const dateKey = resolution === "1d"
+        ? new Date(ts).toISOString().slice(0, 10)
+        : new Date(ts).toISOString().slice(0, 13)
+      raw.push({ ts, date: dateKey, close })
+    }
+
+    if (resolution === "1d") {
+      // Daily: deduplicate by date (keep last candle per day)
+      const byDay = {}
+      for (const r of raw) {
+        if (!byDay[r.date] || r.ts > byDay[r.date].ts) byDay[r.date] = r
+      }
+      const sorted = Object.values(byDay).sort((a, b) => a.ts - b.ts)
+      if(import.meta.env.DEV) console.log(`[YF] klines ${ticker}: ${sorted.length} daily bars, $${sorted[0]?.close} → $${sorted[sorted.length - 1]?.close}`)
+      return sorted
     }
 
     if (resolution === "1h") {
