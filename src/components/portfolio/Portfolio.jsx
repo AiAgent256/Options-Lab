@@ -3,7 +3,7 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
 import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
 import { COLORS, FONTS } from "../../utils/constants";
-import { loadPortfolio, savePortfolio, syncFromCloud, forcePushToCloud, forcePullFromCloud } from "../../lib/persistence";
+import { loadPortfolio, savePortfolio, syncFromCloud, forcePushToCloud, forcePullFromCloud, shouldTakeSnapshot, saveSnapshot, saveSnapshotBatch, loadSnapshots, getSnapshotCount } from "../../lib/persistence";
 
 const ASSET_CLASS_LABELS = {
   market: "Market Assets",
@@ -321,6 +321,8 @@ export default function Portfolio({ onNavigateToChart }) {
   const [closeQty, setCloseQty] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
   const [chartRange, setChartRange] = useState(90);
+  const [snapshotData, setSnapshotData] = useState([]);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
   const importRef = useRef(null);
 
@@ -369,11 +371,27 @@ export default function Portfolio({ onNavigateToChart }) {
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] refresh failed:", err);
+      // Record snapshot to Supabase every 2h
+      if (shouldTakeSnapshot()) {
+        let mv = 0, cv = 0, cashV = 0, cb = 0;
+        marketHoldings.forEach(h => {
+          const p = result[h.symbol.toUpperCase()]?.price || 0;
+          const lev = h.leverage || 1;
+          const margin = (h.costBasis * h.qty) / lev;
+          const pnl = (p - h.costBasis) * h.qty;
+          mv += margin + pnl; cb += margin;
+        });
+        collectibleHoldings.forEach(h => { cv += (h.manualPrice || 0) * h.qty; });
+        cashHoldings.forEach(h => { cashV += h.qty; cb += h.qty; });
+        const tv = mv + cv + cashV;
+        if (tv > 0) saveSnapshot({ totalValue: tv, marketValue: mv, collectibleValue: cv, cashValue: cashV, costBasis: cb, unrealizedPnl: tv - cb });
+      }
     } finally { setLoading(false); }
   }, [marketHoldings, collectibleHoldings, cashHoldings, snapshots]);
 
   const refreshChart = useCallback(async () => {
     if (marketHoldings.length === 0) return;
+    if (chartRange > 7) return; // 30d+ uses snapshots
     setChartLoading(true);
     try {
       const startTime = Date.now() - chartRange * 24 * 60 * 60 * 1000;
@@ -388,7 +406,26 @@ export default function Portfolio({ onNavigateToChart }) {
   useEffect(() => { refreshPrices(); const i = setInterval(refreshPrices, 30000); return () => clearInterval(i); }, [refreshPrices]);
   useEffect(() => { refreshChart(); }, [refreshChart]);
 
+  // Load snapshots from Supabase for 30d+ chart ranges
+  useEffect(() => {
+    if (chartRange <= 7) return;
+    let cancelled = false;
+    setSnapshotLoading(true);
+    loadSnapshots(chartRange).then(data => {
+      if (cancelled) return;
+      setSnapshotData(data);
+      setSnapshotLoading(false);
+    }).catch(() => { if (cancelled) return; setSnapshotLoading(false); });
+    return () => { cancelled = true; };
+  }, [chartRange]);
+
+
   const chartData = useMemo(() => {
+    // 30d+ ranges: use Supabase snapshots
+    if (chartRange > 7) {
+      if (snapshotData.length === 0) return [];
+      return snapshotData.map(s => ({ date: s.date.slice(0, 10), totalValue: s.totalValue, costBasis: s.costBasis }));
+    }
     if (Object.keys(klineData).length === 0) return [];
     const useHourly = chartRange <= 7;
     const assetTimePrice = {};
@@ -440,7 +477,7 @@ export default function Portfolio({ onNavigateToChart }) {
 
     // Only show chart from the point where all assets have been seen
     return raw.filter(d => d.complete);
-  }, [klineData, marketHoldings, collectibleHoldings, cashHoldings, holdings, chartRange]);
+  }, [klineData, snapshotData, marketHoldings, collectibleHoldings, cashHoldings, holdings, chartRange]);
 
   const summary = useMemo(() => {
     let marketValue = 0, marketCost = 0, marketPnl = 0;
@@ -602,7 +639,7 @@ export default function Portfolio({ onNavigateToChart }) {
           </div>
         </div>
         <div style={{ ...S.card, padding: "16px 8px 8px" }}>
-          {chartLoading && chartData.length === 0 ? (
+          {(chartLoading || snapshotLoading) && chartData.length === 0 ? (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>Loading chart data...</div>
           ) : chartData.length === 0 ? (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>No historical data. Add market assets and refresh.</div>

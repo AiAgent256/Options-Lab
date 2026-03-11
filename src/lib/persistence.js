@@ -166,3 +166,70 @@ export async function forcePullFromCloud() {
   lsSet(LS_KEYS.lastSync, cloud.updatedAt);
   return cloud;
 }
+
+
+// ─── PORTFOLIO SNAPSHOTS (time-series in Supabase) ──────────────────────────
+const SNAP_TABLE = "portfolio_snapshots";
+const LS_LAST_SNAPSHOT = "optlab:portfolio:lastSnapshotTime";
+const SNAPSHOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
+
+export function shouldTakeSnapshot() {
+  try {
+    const last = localStorage.getItem(LS_LAST_SNAPSHOT);
+    if (!last) return true;
+    return (Date.now() - new Date(last).getTime()) >= SNAPSHOT_INTERVAL_MS;
+  } catch { return true; }
+}
+
+export async function saveSnapshot({ totalValue, marketValue, collectibleValue, cashValue, costBasis, unrealizedPnl, source = "live" }) {
+  try {
+    const now = new Date().toISOString();
+    const { error } = await supabase.from(SNAP_TABLE).insert({
+      timestamp: now, total_value: totalValue, market_value: marketValue,
+      collectible_value: collectibleValue, cash_value: cashValue,
+      cost_basis: costBasis, unrealized_pnl: unrealizedPnl, source,
+    });
+    if (error) { if (import.meta.env.DEV) console.warn("[Snapshot] save failed:", error.message); return false; }
+    localStorage.setItem(LS_LAST_SNAPSHOT, now);
+    if (import.meta.env.DEV) console.log("[Snapshot] saved: $" + totalValue.toFixed(2) + " (" + source + ")");
+    return true;
+  } catch (err) { if (import.meta.env.DEV) console.warn("[Snapshot] error:", err.message); return false; }
+}
+
+export async function saveSnapshotBatch(snapshots) {
+  if (!snapshots || snapshots.length === 0) return false;
+  try {
+    const rows = snapshots.map(s => ({
+      timestamp: s.timestamp, total_value: s.totalValue, market_value: s.marketValue || 0,
+      collectible_value: s.collectibleValue || 0, cash_value: s.cashValue || 0,
+      cost_basis: s.costBasis || 0, unrealized_pnl: s.unrealizedPnl || 0, source: s.source || "backfill",
+    }));
+    const { error } = await supabase.from(SNAP_TABLE).insert(rows);
+    if (error) { if (import.meta.env.DEV) console.warn("[Snapshot] batch failed:", error.message); return false; }
+    if (import.meta.env.DEV) console.log("[Snapshot] backfilled " + rows.length + " snapshots");
+    return true;
+  } catch (err) { if (import.meta.env.DEV) console.warn("[Snapshot] batch error:", err.message); return false; }
+}
+
+export async function loadSnapshots(daysBack = 365) {
+  try {
+    const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase.from(SNAP_TABLE)
+      .select("timestamp, total_value, market_value, collectible_value, cash_value, cost_basis, unrealized_pnl, source")
+      .gte("timestamp", since).order("timestamp", { ascending: true });
+    if (error) { if (import.meta.env.DEV) console.warn("[Snapshot] load failed:", error.message); return []; }
+    return (data || []).map(row => ({
+      date: row.timestamp, totalValue: parseFloat(row.total_value), costBasis: parseFloat(row.cost_basis),
+      marketValue: parseFloat(row.market_value), collectibleValue: parseFloat(row.collectible_value),
+      cashValue: parseFloat(row.cash_value), unrealizedPnl: parseFloat(row.unrealized_pnl), source: row.source,
+    }));
+  } catch (err) { if (import.meta.env.DEV) console.warn("[Snapshot] load error:", err.message); return []; }
+}
+
+export async function getSnapshotCount() {
+  try {
+    const { count, error } = await supabase.from(SNAP_TABLE).select("id", { count: "exact", head: true });
+    if (error) return 0;
+    return count || 0;
+  } catch { return 0; }
+}
