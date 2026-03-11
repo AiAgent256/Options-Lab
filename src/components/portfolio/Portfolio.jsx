@@ -447,7 +447,7 @@ export default function Portfolio({ onNavigateToChart }) {
     const enrichedMarket = marketHoldings.map(h => {
       const pd = prices[h.symbol.toUpperCase()];
       const cp = pd?.price || 0, ch = pd?.change || 0, lev = h.leverage || 1;
-      const mv = (cp * h.qty) / lev;           // margin value (capital at risk)
+      const mv = (h.costBasis * h.qty) / lev + (cp - h.costBasis) * h.qty; // position equity = margin + P&L
       const ct = (h.costBasis * h.qty) / lev;   // margin cost (capital deployed)
       const pnl = (cp - h.costBasis) * h.qty;   // notional P&L — what actually hits your account
       const pp = ct > 0 ? pnl / ct : 0;         // return on margin
