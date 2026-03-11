@@ -389,17 +389,81 @@ export default function Portfolio({ onNavigateToChart }) {
     } finally { setLoading(false); }
   }, [marketHoldings, collectibleHoldings, cashHoldings, snapshots]);
 
+  // Backfill: seed 7 days of snapshots from kline data on first load
   const refreshChart = useCallback(async () => {
     if (marketHoldings.length === 0) return;
-    if (chartRange > 7) return; // 30d+ uses snapshots
+    const count = await getSnapshotCount();
+    if (count > 10) return; // already have enough data
     setChartLoading(true);
     try {
-      const startTime = Date.now() - chartRange * 24 * 60 * 60 * 1000;
-      const resolution = chartRange <= 7 ? "1h" : "4h";
+      const startTime = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const requests = marketHoldings.map(h => ({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime }));
-      setKlineData(await fetchAllKlines(requests, resolution));
+      const klines = await fetchAllKlines(requests, "4h");
+      if (!klines || Object.keys(klines).length === 0) return;
+
+      const assetTimePrice = {};
+      marketHoldings.forEach(h => {
+        const key = h.symbol.toUpperCase();
+        const ks = klines[key];
+        if (!ks) return;
+        if (!assetTimePrice[key]) assetTimePrice[key] = {};
+        ks.forEach(k => {
+          const timeKey = k.date && k.date.slice(0, 13);
+          if (timeKey && k.close) assetTimePrice[key][timeKey] = k.close;
+        });
+      });
+
+      const allTimes = new Set();
+      Object.values(assetTimePrice).forEach(dm => Object.keys(dm).forEach(d => allTimes.add(d)));
+      const sortedTimes = [...allTimes].sort();
+      const assetKeys = marketHoldings.map(h => h.symbol.toUpperCase()).filter(k => assetTimePrice[k]);
+      const numAssets = assetKeys.length;
+      const lastKnown = {};
+      let allSeen = false;
+
+      const collectibleTotal = collectibleHoldings.reduce((s, h) => s + (h.manualPrice || 0) * h.qty, 0);
+      const cashTotal = cashHoldings.reduce((s, h) => s + h.qty, 0);
+      const staticTotal = collectibleTotal + cashTotal;
+      const totalCost = holdings.reduce((sum, h) => {
+        if ((h.assetClass || "market") === "cash") return sum + h.qty;
+        return sum + (h.costBasis * h.qty) / (h.leverage || 1);
+      }, 0);
+
+      const backfillSnaps = [];
+      for (const t of sortedTimes) {
+        let mv = 0, seen = 0;
+        marketHoldings.forEach(h => {
+          const key = h.symbol.toUpperCase();
+          const price = assetTimePrice[key] && assetTimePrice[key][t];
+          if (price != null) lastKnown[key] = price;
+          const usePrice = price != null ? price : lastKnown[key];
+          if (usePrice != null) {
+            const lev = h.leverage || 1;
+            const margin = (h.costBasis * h.qty) / lev;
+            const pnl = (usePrice - h.costBasis) * h.qty;
+            mv += margin + pnl;
+            seen++;
+          }
+        });
+        if (seen >= numAssets) allSeen = true;
+        if (!allSeen) continue;
+        const totalValue = mv + staticTotal;
+        const isoTime = t.length === 13 ? t + ":00:00Z" : t + "T00:00:00Z";
+        backfillSnaps.push({
+          timestamp: isoTime, totalValue: totalValue, marketValue: mv,
+          collectibleValue: collectibleTotal, cashValue: cashTotal,
+          costBasis: totalCost, unrealizedPnl: totalValue - totalCost, source: "backfill",
+        });
+      }
+
+      if (backfillSnaps.length > 0) {
+        await saveSnapshotBatch(backfillSnaps);
+        // Reload snapshots for chart
+        const fresh = await loadSnapshots(chartRange);
+        setSnapshotData(fresh);
+      }
     } catch (err) {
-      if (import.meta.env.DEV) console.error("[Portfolio] chart data failed:", err);
+      if (import.meta.env.DEV) console.error("[Backfill] failed:", err);
     } finally { setChartLoading(false); }
   }, [marketHoldings, chartRange]);
 
@@ -408,7 +472,6 @@ export default function Portfolio({ onNavigateToChart }) {
 
   // Load snapshots from Supabase for 30d+ chart ranges
   useEffect(() => {
-    if (chartRange <= 7) return;
     let cancelled = false;
     setSnapshotLoading(true);
     loadSnapshots(chartRange).then(data => {
@@ -421,63 +484,15 @@ export default function Portfolio({ onNavigateToChart }) {
 
 
   const chartData = useMemo(() => {
-    // 30d+ ranges: use Supabase snapshots
-    if (chartRange > 7) {
-      if (snapshotData.length === 0) return [];
-      return snapshotData.map(s => ({ date: s.date.slice(0, 10), totalValue: s.totalValue, costBasis: s.costBasis }));
-    }
-    if (Object.keys(klineData).length === 0) return [];
-    const useHourly = chartRange <= 7;
-    const assetTimePrice = {};
-    marketHoldings.forEach(h => {
-      const key = h.symbol.toUpperCase();
-      const klines = klineData[key];
-      if (!klines) return;
-      if (!assetTimePrice[key]) assetTimePrice[key] = {};
-      klines.forEach(k => {
-        // For short ranges, use full hourly key; for long ranges, group by day
-        const timeKey = useHourly ? k.date : k.date?.slice(0, 10);
-        if (!timeKey || !k.close) return;
-        assetTimePrice[key][timeKey] = k.close;
-      });
+    if (snapshotData.length === 0) return [];
+    // Group by day, take last snapshot per day
+    const byDay = {};
+    snapshotData.forEach(s => {
+      const day = s.date.slice(0, 10);
+      byDay[day] = { date: day, totalValue: s.totalValue, costBasis: s.costBasis };
     });
-    const allTimes = new Set();
-    Object.values(assetTimePrice).forEach(dm => Object.keys(dm).forEach(d => allTimes.add(d)));
-    const collectibleTotal = collectibleHoldings.reduce((s, h) => s + (h.manualPrice || 0) * h.qty, 0);
-    const cashTotal = cashHoldings.reduce((s, h) => s + h.qty, 0);
-    const staticTotal = collectibleTotal + cashTotal;
-    const totalCost = holdings.reduce((sum, h) => {
-      if ((h.assetClass || "market") === "cash") return sum + h.qty;
-      return sum + (h.costBasis * h.qty) / (h.leverage || 1);
-    }, 0);
-    const sortedTimes = [...allTimes].sort();
-    const assetKeys = marketHoldings.map(h => h.symbol.toUpperCase()).filter(k => assetTimePrice[k]);
-    const numAssets = assetKeys.length;
-
-    // Carry-forward: track last known price per asset
-    const lastKnown = {};
-    let allAssetsSeenOnce = false;
-
-    const raw = sortedTimes.map(t => {
-      let mv = 0;
-      let assetsWithData = 0;
-      marketHoldings.forEach(h => {
-        const key = h.symbol.toUpperCase();
-        const price = assetTimePrice[key]?.[t];
-        if (price != null) lastKnown[key] = price;
-        const usePrice = price ?? lastKnown[key];
-        if (usePrice != null) {
-          mv += (h.costBasis * h.qty) / (h.leverage || 1) + (usePrice - h.costBasis) * h.qty;
-          assetsWithData++;
-        }
-      });
-      if (assetsWithData >= numAssets) allAssetsSeenOnce = true;
-      return { date: t, totalValue: mv + staticTotal, costBasis: totalCost, complete: allAssetsSeenOnce };
-    });
-
-    // Only show chart from the point where all assets have been seen
-    return raw.filter(d => d.complete);
-  }, [klineData, snapshotData, marketHoldings, collectibleHoldings, cashHoldings, holdings, chartRange]);
+    return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+  }, [snapshotData]);
 
   const summary = useMemo(() => {
     let marketValue = 0, marketCost = 0, marketPnl = 0;
