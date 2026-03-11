@@ -559,8 +559,19 @@ export default function Portfolio({ onNavigateToChart }) {
     setNextId(p => p + 1);
     if (qty >= closingHolding.qty) setHoldings(prev => prev.filter(h => h.id !== closingHolding.id));
     else setHoldings(prev => prev.map(h => h.id === closingHolding.id ? { ...h, qty: h.qty - qty } : h));
+    // Add proceeds to Trading Cash
+    const lev = closingHolding.leverage || 1;
+    const margin = (closingHolding.costBasis * qty) / lev;
+    const proceeds = lev > 1 ? margin + realizedPnl : exitPrice * qty;
+    if (proceeds > 0 && (closingHolding.assetClass || "market") === "market") {
+      setHoldings(prev => {
+        const ci = prev.findIndex(h => h.assetClass === "cash" && h.symbol === "TRADING_CASH");
+        if (ci >= 0) return prev.map((h, i) => i === ci ? { ...h, qty: h.qty + proceeds } : h);
+        return [...prev, { id: nextId + 1, assetClass: "cash", symbol: "TRADING_CASH", label: "Trading Cash", type: "cash", exchange: null, qty: proceeds, costBasis: 0, leverage: 1, manualPrice: null, manualPriceDate: null, openDate: closeDate, notes: "From closed positions" }];
+      });
+    }
     setClosingHolding(null);
-  }, [closingHolding, closePrice, closeQty, closeDate, closeNotes, nextId]);
+  }, [closingHolding, closePrice, closeQty, closeDate, closeNotes, nextId, holdings]);
 
   const deleteClosedTrade = useCallback((id) => { setClosedTrades(prev => prev.filter(t => t.id !== id)); }, []);
 
