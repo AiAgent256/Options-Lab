@@ -430,7 +430,7 @@ export default function Portfolio({ onNavigateToChart }) {
         if (price != null) lastKnown[key] = price;
         const usePrice = price ?? lastKnown[key];
         if (usePrice != null) {
-          mv += (h.costBasis * h.qty) / (h.leverage || 1);
+          mv += (h.costBasis * h.qty) / (h.leverage || 1) + (usePrice - h.costBasis) * h.qty;
           assetsWithData++;
         }
       });
