@@ -156,6 +156,115 @@ function UpdateValueModal({ holding, onSave, onCancel }) {
   );
 }
 
+// ─── EDIT CARD MODAL ─────────────────────────────────────────────────────────
+function EditCardModal({ holding, onSave, onCancel }) {
+  const [cardGame, setCardGame] = useState(holding.cardGame || "");
+  const [cardName, setCardName] = useState(holding.cardName || holding.label || "");
+  const [setId, setSetId] = useState(holding.setId || "");
+  const [cardNumber, setCardNumber] = useState(holding.cardNumber || "");
+  const [variant, setVariant] = useState(holding.variant || "holofoil");
+  const [setCode, setSetCode] = useState(holding.setCode || "");
+  const [rarity, setRarity] = useState(holding.rarity || "");
+  const [cardSet, setCardSet] = useState(holding.cardSet || "");
+  const [grade, setGrade] = useState(holding.grade || "");
+
+  const handleSave = () => {
+    onSave({
+      cardGame: cardGame || null,
+      cardName: cardName.trim(),
+      label: cardName.trim() || holding.label,
+      cardSet: cardSet.trim(),
+      grade: grade.trim(),
+      ...(cardGame === "pokemon" ? { setId: setId.trim().toLowerCase(), cardNumber: cardNumber.trim(), variant } : {}),
+      ...(cardGame === "yugioh" ? { setCode: setCode.trim(), rarity: rarity.trim() } : {}),
+    });
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }} onClick={onCancel}>
+      <div style={{
+        background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
+        borderRadius: 12, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
+        maxHeight: "85vh", overflowY: "auto",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+          Edit Card: {holding.label || holding.symbol}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: 2 }}>
+            {[["pokemon", "Pokemon"], ["yugioh", "Yu-Gi-Oh"], ["other", "Other"]].map(([key, lbl]) => (
+              <button key={key} onClick={() => setCardGame(key)} style={{
+                ...S.btn, flex: 1, padding: "6px 10px", textAlign: "center", fontSize: 10,
+                ...(cardGame === key ? { background: COLORS.accent.blueBg, borderColor: COLORS.accent.blueBorder, color: COLORS.accent.blue } : {}),
+              }}>{lbl}</button>
+            ))}
+          </div>
+          <Row label="Card Name">
+            <input style={{ ...S.input, width: "100%" }}
+              placeholder={cardGame === "pokemon" ? "Charizard" : cardGame === "yugioh" ? "Dark Magician" : "Item name"}
+              value={cardName} onChange={e => setCardName(e.target.value)} autoFocus />
+          </Row>
+          {cardGame === "pokemon" && (
+            <>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Row label="Set ID" flex={1}>
+                  <input style={{ ...S.input, width: "100%" }} placeholder="base1, swsh12pt5, sv1" value={setId}
+                    onChange={e => setSetId(e.target.value)} />
+                </Row>
+                <Row label="Card #" flex={1}>
+                  <input style={{ ...S.input, width: "100%" }} placeholder="4" value={cardNumber}
+                    onChange={e => setCardNumber(e.target.value)} />
+                </Row>
+              </div>
+              <Row label="Variant">
+                <select style={{ ...S.input, width: "100%" }} value={variant} onChange={e => setVariant(e.target.value)}>
+                  <option value="holofoil">Holofoil</option>
+                  <option value="normal">Normal</option>
+                  <option value="reverseHolofoil">Reverse Holofoil</option>
+                  <option value="1stEditionHolofoil">1st Edition Holofoil</option>
+                  <option value="1stEditionNormal">1st Edition Normal</option>
+                </select>
+              </Row>
+            </>
+          )}
+          {cardGame === "yugioh" && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Row label="Set Code" flex={1}>
+                <input style={{ ...S.input, width: "100%" }} placeholder="LOB-EN005" value={setCode}
+                  onChange={e => setSetCode(e.target.value)} />
+              </Row>
+              <Row label="Rarity" flex={1}>
+                <input style={{ ...S.input, width: "100%" }} placeholder="Ultra Rare" value={rarity}
+                  onChange={e => setRarity(e.target.value)} />
+              </Row>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Row label="Set Name" flex={1}>
+              <input style={{ ...S.input, width: "100%" }} placeholder="Base Set" value={cardSet}
+                onChange={e => setCardSet(e.target.value)} />
+            </Row>
+            <Row label="Grade" flex={1}>
+              <input style={{ ...S.input, width: "100%" }} placeholder="PSA 9, Raw" value={grade}
+                onChange={e => setGrade(e.target.value)} />
+            </Row>
+          </div>
+          <div style={{ fontSize: 9, color: COLORS.text.dim, padding: "4px 0" }}>
+            {cardGame && cardGame !== "other" ? "Price will auto-fetch from TCGPlayer on next refresh." : "Price must be updated manually."}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button style={{ ...S.btnPrimary, flex: 1, padding: "8px 16px" }} onClick={handleSave}>Save</button>
+            <button style={{ ...S.btn, padding: "8px 16px" }} onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ADD ASSET MODAL ────────────────────────────────────────────────────────
 function AddAssetModal({ onAdd, onCancel, nextId }) {
   const [assetClass, setAssetClass] = useState("market");
@@ -383,6 +492,7 @@ export default function Portfolio({ onNavigateToChart }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [closingHolding, setClosingHolding] = useState(null);
   const [updatingHolding, setUpdatingHolding] = useState(null);
+  const [editingCard, setEditingCard] = useState(null);
   const [closePrice, setClosePrice] = useState("");
   const [closeDate, setCloseDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [closeQty, setCloseQty] = useState("");
@@ -618,6 +728,10 @@ export default function Portfolio({ onNavigateToChart }) {
     setUpdatingHolding(null);
   }, []);
   const updateCashAmount = useCallback((id, nq) => { setHoldings(prev => prev.map(h => h.id === id ? { ...h, qty: nq } : h)); }, []);
+  const saveCardEdit = useCallback((id, fields) => {
+    setHoldings(prev => prev.map(h => h.id === id ? { ...h, ...fields } : h));
+    setEditingCard(null);
+  }, []);
 
   const startCloseTrade = useCallback((holding) => {
     setClosingHolding(holding);
@@ -872,6 +986,7 @@ export default function Portfolio({ onNavigateToChart }) {
                   <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>{fmtPnlPct(h.pnlPct)}</td>
                   <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim }}>{h.manualPriceDate || "—"}</td>
                   <td style={{ ...S.td, whiteSpace: "nowrap" }}>
+                    <button style={S.btn} onClick={() => setEditingCard(h)} title="Edit card fields">Edit</button>{" "}
                     <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Sell</button>{" "}
                     <button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button>
                   </td>
@@ -956,6 +1071,7 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* Modals */}
       {showAddModal && <AddAssetModal onAdd={addHolding} onCancel={() => setShowAddModal(false)} nextId={nextId} />}
       {updatingHolding && <UpdateValueModal holding={updatingHolding} onSave={(p) => updateManualPrice(updatingHolding.id, p)} onCancel={() => setUpdatingHolding(null)} />}
+      {editingCard && <EditCardModal holding={editingCard} onSave={(fields) => saveCardEdit(editingCard.id, fields)} onCancel={() => setEditingCard(null)} />}
       {closingHolding && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setClosingHolding(null)}>
           <div style={{ background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 440, fontFamily: FONTS.mono }} onClick={e => e.stopPropagation()}>
