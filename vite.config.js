@@ -30,6 +30,16 @@ export default defineConfig({
           'User-Agent': 'Mozilla/5.0',
         },
       },
+      '/api/pokemon': {
+        target: 'https://api.pokemontcg.io',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/pokemon/, ''),
+      },
+      '/api/yugioh': {
+        target: 'https://db.ygoprodeck.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/yugioh/, ''),
+      },
     },
   },
   build: {

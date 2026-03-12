@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
+import { fetchCardPrices } from "../../hooks/useCardPrices";
 import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
 import { COLORS, FONTS } from "../../utils/constants";
 import { loadPortfolio, savePortfolio, syncFromCloud, forcePushToCloud, forcePullFromCloud, shouldTakeSnapshot, saveSnapshot, saveSnapshotBatch, loadSnapshots, getSnapshotCount } from "../../lib/persistence";
@@ -169,6 +170,13 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
   const [notes, setNotes] = useState("");
   const [grade, setGrade] = useState("");
   const [cardSet, setCardSet] = useState("");
+  const [cardGame, setCardGame] = useState("pokemon");
+  const [cardName, setCardName] = useState("");
+  const [setId, setSetId] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
+  const [variant, setVariant] = useState("holofoil");
+  const [setCode, setSetCode] = useState("");
+  const [rarity, setRarity] = useState("");
 
   const handleAdd = () => {
     const sym = symbol.trim().toUpperCase() || label.trim().toUpperCase().replace(/\s+/g, "_") || "ITEM";
@@ -186,7 +194,21 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
       manualPriceDate: assetClass !== "market" ? new Date().toISOString().split("T")[0] : null,
       openDate,
       notes: notes.trim(),
-      ...(assetClass === "collectible" ? { grade: grade.trim(), cardSet: cardSet.trim() } : {}),
+      ...(assetClass === "collectible" ? {
+        grade: grade.trim(),
+        cardSet: cardSet.trim(),
+        cardGame: cardGame || null,
+        cardName: cardName.trim(),
+        ...(cardGame === "pokemon" ? {
+          setId: setId.trim().toLowerCase(),
+          cardNumber: cardNumber.trim(),
+          variant,
+        } : {}),
+        ...(cardGame === "yugioh" ? {
+          setCode: setCode.trim(),
+          rarity: rarity.trim(),
+        } : {}),
+      } : {}),
     };
     onAdd(holding);
   };
@@ -225,17 +247,61 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
           )}
           {assetClass === "collectible" && (
             <>
-              <Row label="Card / Item Name">
-                <input style={{ ...S.input, width: "100%" }} placeholder="Charizard EX 105/112" value={label}
-                  onChange={e => setLabel(e.target.value)} autoFocus />
+              <div style={{ display: "flex", gap: 4, marginBottom: 2 }}>
+                {[["pokemon", "Pokemon"], ["yugioh", "Yu-Gi-Oh"], ["other", "Other"]].map(([key, lbl]) => (
+                  <button key={key} onClick={() => setCardGame(key)} style={{
+                    ...S.btn, flex: 1, padding: "6px 10px", textAlign: "center", fontSize: 10,
+                    ...(cardGame === key ? { background: COLORS.accent.blueBg, borderColor: COLORS.accent.blueBorder, color: COLORS.accent.blue } : {}),
+                  }}>{lbl}</button>
+                ))}
+              </div>
+              <Row label="Card Name">
+                <input style={{ ...S.input, width: "100%" }}
+                  placeholder={cardGame === "pokemon" ? "Charizard" : cardGame === "yugioh" ? "Dark Magician" : "Item name"}
+                  value={cardName} onChange={e => { setCardName(e.target.value); setLabel(e.target.value); }} autoFocus />
               </Row>
+              {cardGame === "pokemon" && (
+                <>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Row label="Set ID" flex={1}>
+                      <input style={{ ...S.input, width: "100%" }} placeholder="base1, swsh12pt5, sv1" value={setId}
+                        onChange={e => setSetId(e.target.value)} />
+                    </Row>
+                    <Row label="Card #" flex={1}>
+                      <input style={{ ...S.input, width: "100%" }} placeholder="4" value={cardNumber}
+                        onChange={e => setCardNumber(e.target.value)} />
+                    </Row>
+                  </div>
+                  <Row label="Variant">
+                    <select style={{ ...S.input, width: "100%" }} value={variant} onChange={e => setVariant(e.target.value)}>
+                      <option value="holofoil">Holofoil</option>
+                      <option value="normal">Normal</option>
+                      <option value="reverseHolofoil">Reverse Holofoil</option>
+                      <option value="1stEditionHolofoil">1st Edition Holofoil</option>
+                      <option value="1stEditionNormal">1st Edition Normal</option>
+                    </select>
+                  </Row>
+                </>
+              )}
+              {cardGame === "yugioh" && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Row label="Set Code" flex={1}>
+                    <input style={{ ...S.input, width: "100%" }} placeholder="LOB-EN005" value={setCode}
+                      onChange={e => setSetCode(e.target.value)} />
+                  </Row>
+                  <Row label="Rarity" flex={1}>
+                    <input style={{ ...S.input, width: "100%" }} placeholder="Ultra Rare" value={rarity}
+                      onChange={e => setRarity(e.target.value)} />
+                  </Row>
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
-                <Row label="Set" flex={1}>
-                  <input style={{ ...S.input, width: "100%" }} placeholder="EX FireRed" value={cardSet}
+                <Row label="Set Name" flex={1}>
+                  <input style={{ ...S.input, width: "100%" }} placeholder={cardGame === "pokemon" ? "Base Set" : "Legend of Blue Eyes"} value={cardSet}
                     onChange={e => setCardSet(e.target.value)} />
                 </Row>
                 <Row label="Grade" flex={1}>
-                  <input style={{ ...S.input, width: "100%" }} placeholder="PSA 9" value={grade}
+                  <input style={{ ...S.input, width: "100%" }} placeholder="PSA 9, Raw" value={grade}
                     onChange={e => setGrade(e.target.value)} />
                 </Row>
               </div>
@@ -274,9 +340,10 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
             )}
           </div>
           {assetClass === "collectible" && (
-            <Row label="Current Value (per unit)">
+            <Row label={cardGame !== "other" ? "Current Value (auto-fetched on refresh)" : "Current Value (per unit)"}>
               <input style={{ ...S.input, width: "100%" }} type="number" step="any" value={manualPrice}
-                onChange={e => setManualPrice(e.target.value)} placeholder="What it's worth today" />
+                onChange={e => setManualPrice(e.target.value)}
+                placeholder={cardGame !== "other" ? "Leave blank — auto-fetched from TCGPlayer" : "What it's worth today"} />
             </Row>
           )}
           <Row label="Date Acquired">
@@ -354,11 +421,26 @@ export default function Portfolio({ onNavigateToChart }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshPrices = useCallback(async () => {
-    if (marketHoldings.length === 0) { setLastRefresh(new Date()); return; }
+    const hasMarket = marketHoldings.length > 0;
+    const hasCards = collectibleHoldings.some(h => h.cardGame && h.cardGame !== "other");
+    if (!hasMarket && !hasCards) { setLastRefresh(new Date()); return; }
     setLoading(true);
     try {
-      const result = await fetchTickers(marketHoldings);
+      const result = hasMarket ? await fetchTickers(marketHoldings) : {};
       setPrices(result);
+
+      // Auto-fetch card prices for Pokemon/Yu-Gi-Oh collectibles
+      if (hasCards) {
+        const cardPrices = await fetchCardPrices(collectibleHoldings);
+        if (Object.keys(cardPrices).length > 0) {
+          setHoldings(prev => prev.map(h => {
+            const cp = cardPrices[h.id];
+            if (!cp) return h;
+            return { ...h, manualPrice: cp.price, manualPriceDate: cp.updatedAt || new Date().toISOString().split("T")[0] };
+          }));
+        }
+      }
+
       setLastRefresh(new Date());
       // Local snapshot every 2h
       const now = new Date();
@@ -772,8 +854,12 @@ export default function Portfolio({ onNavigateToChart }) {
               ) : summary.enrichedCollectibles.map(h => (
                 <tr key={h.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary, maxWidth: 200 }}>
-                    <div>{h.label || h.symbol}</div>
-                    {h.cardSet && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 2 }}>{h.cardSet}</div>}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {h.label || h.symbol}
+                      {h.cardGame === "pokemon" && <span style={{ ...S.badge("#f59e0b"), fontSize: 8, padding: "1px 4px" }}>PKM</span>}
+                      {h.cardGame === "yugioh" && <span style={{ ...S.badge("#8b5cf6"), fontSize: 8, padding: "1px 4px" }}>YGO</span>}
+                    </div>
+                    {h.cardSet && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 2 }}>{h.cardSet}{h.variant && h.variant !== "normal" ? ` · ${h.variant}` : ""}</div>}
                     {h.notes && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 1, fontStyle: "italic" }}>{h.notes}</div>}
                   </td>
                   <td style={S.td}>{B(h.qty)}</td>

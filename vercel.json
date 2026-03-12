@@ -5,6 +5,8 @@
     { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
     { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
     { "src": "api/yahoo/[...path].js", "use": "@vercel/node" },
+    { "src": "api/pokemon/[...path].js", "use": "@vercel/node" },
+    { "src": "api/yugioh/[...path].js", "use": "@vercel/node" },
     { "src": "api/news/feed.js", "use": "@vercel/node" }
   ],
   "routes": [
@@ -12,6 +14,8 @@
     { "src": "/api/coingecko/(.*)", "dest": "/api/coingecko/[...path].js" },
     { "src": "/api/phemex/(.*)", "dest": "/api/phemex/[...path].js" },
     { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
+    { "src": "/api/pokemon/(.*)", "dest": "/api/pokemon/[...path].js" },
+    { "src": "/api/yugioh/(.*)", "dest": "/api/yugioh/[...path].js" },
     { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
