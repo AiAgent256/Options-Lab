@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { fetchTickers, fetchAllKlines } from "../hooks/useMarketData";
-import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../utils/format";
-import { COLORS, FONTS } from "../utils/constants";
-import { loadPortfolio, savePortfolio, syncFromCloud, forcePushToCloud, forcePullFromCloud } from "../lib/persistence";
+import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
+import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
+import { COLORS, FONTS } from "../../utils/constants";
+import { loadPortfolio, savePortfolio, syncFromCloud, forcePushToCloud, forcePullFromCloud, shouldTakeSnapshot, saveSnapshot, saveSnapshotBatch, loadSnapshots, getSnapshotCount } from "../../lib/persistence";
 
 const ASSET_CLASS_LABELS = {
   market: "Market Assets",
@@ -321,6 +321,8 @@ export default function Portfolio({ onNavigateToChart }) {
   const [closeQty, setCloseQty] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
   const [chartRange, setChartRange] = useState(90);
+  const [snapshotData, setSnapshotData] = useState([]);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
   const importRef = useRef(null);
 
@@ -358,6 +360,7 @@ export default function Portfolio({ onNavigateToChart }) {
       const result = await fetchTickers(marketHoldings);
       setPrices(result);
       setLastRefresh(new Date());
+      // Local snapshot every 2h
       const now = new Date();
       const h2 = Math.floor(now.getHours() / 2) * 2;
       const snapKey = `${now.toISOString().split("T")[0]}T${String(h2).padStart(2, "0")}`;
@@ -369,113 +372,137 @@ export default function Portfolio({ onNavigateToChart }) {
         cashHoldings.forEach(h => { totalValue += h.qty; });
         if (totalValue > 0) setSnapshots(prev => [...prev.slice(-4380), { date: snapKey, value: totalValue }]);
       }
+      // Record snapshot to Supabase every 2h
+      if (shouldTakeSnapshot()) {
+        let mv = 0, cv = 0, cashV = 0, cb = 0;
+        marketHoldings.forEach(h => {
+          const p = result[h.symbol.toUpperCase()]?.price || 0;
+          const lev = h.leverage || 1;
+          const margin = (h.costBasis * h.qty) / lev;
+          const pnl = (p - h.costBasis) * h.qty;
+          mv += margin + pnl; cb += margin;
+        });
+        collectibleHoldings.forEach(h => { cv += (h.manualPrice || 0) * h.qty; });
+        cashHoldings.forEach(h => { cashV += h.qty; cb += h.qty; });
+        const tv = mv + cv + cashV;
+        if (tv > 0) saveSnapshot({ totalValue: tv, marketValue: mv, collectibleValue: cv, cashValue: cashV, costBasis: cb, unrealizedPnl: tv - cb });
+      }
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] refresh failed:", err);
     } finally { setLoading(false); }
   }, [marketHoldings, collectibleHoldings, cashHoldings, snapshots]);
 
+  // Backfill: seed 7 days of snapshots from kline data on first load
   const refreshChart = useCallback(async () => {
     if (marketHoldings.length === 0) return;
+    const count = await getSnapshotCount();
+    if (count > 10) return; // already have enough data
     setChartLoading(true);
     try {
-      const startTime = Date.now() - chartRange * 24 * 60 * 60 * 1000;
-      const resolution = chartRange <= 7 ? "1h" : "1d";
+      const startTime = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const requests = marketHoldings.map(h => ({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime }));
-      setKlineData(await fetchAllKlines(requests, resolution));
+      const klines = await fetchAllKlines(requests, "2h");
+      if (!klines || Object.keys(klines).length === 0) return;
+
+      const assetTimePrice = {};
+      marketHoldings.forEach(h => {
+        const key = h.symbol.toUpperCase();
+        const ks = klines[key];
+        if (!ks) return;
+        if (!assetTimePrice[key]) assetTimePrice[key] = {};
+        ks.forEach(k => {
+          const timeKey = k.date && k.date.slice(0, 13);
+          if (timeKey && k.close) assetTimePrice[key][timeKey] = k.close;
+        });
+      });
+
+      const allTimes = new Set();
+      Object.values(assetTimePrice).forEach(dm => Object.keys(dm).forEach(d => allTimes.add(d)));
+      const sortedTimes = [...allTimes].sort();
+      const assetKeys = marketHoldings.map(h => h.symbol.toUpperCase()).filter(k => assetTimePrice[k]);
+      const numAssets = assetKeys.length;
+      const lastKnown = {};
+      let allSeen = false;
+
+      const collectibleTotal = collectibleHoldings.reduce((s, h) => s + (h.manualPrice || 0) * h.qty, 0);
+      const cashTotal = cashHoldings.reduce((s, h) => s + h.qty, 0);
+      const staticTotal = collectibleTotal + cashTotal;
+      const totalCost = holdings.reduce((sum, h) => {
+        if ((h.assetClass || "market") === "cash") return sum + h.qty;
+        return sum + (h.costBasis * h.qty) / (h.leverage || 1);
+      }, 0);
+
+      const backfillSnaps = [];
+      for (const t of sortedTimes) {
+        let mv = 0, seen = 0;
+        marketHoldings.forEach(h => {
+          const key = h.symbol.toUpperCase();
+          const price = assetTimePrice[key] && assetTimePrice[key][t];
+          if (price != null) lastKnown[key] = price;
+          const usePrice = price != null ? price : lastKnown[key];
+          if (usePrice != null) {
+            const lev = h.leverage || 1;
+            const margin = (h.costBasis * h.qty) / lev;
+            const pnl = (usePrice - h.costBasis) * h.qty;
+            mv += margin + pnl;
+            seen++;
+          }
+        });
+        if (seen >= numAssets) allSeen = true;
+        if (!allSeen) continue;
+        const totalValue = mv + staticTotal;
+        const isoTime = t.length === 13 ? t + ":00:00Z" : t + "T00:00:00Z";
+        backfillSnaps.push({
+          timestamp: isoTime, totalValue: totalValue, marketValue: mv,
+          collectibleValue: collectibleTotal, cashValue: cashTotal,
+          costBasis: totalCost, unrealizedPnl: totalValue - totalCost, source: "backfill",
+        });
+      }
+
+      if (backfillSnaps.length > 0) {
+        await saveSnapshotBatch(backfillSnaps);
+        // Reload snapshots for chart
+        const fresh = await loadSnapshots(chartRange);
+        setSnapshotData(fresh);
+      }
     } catch (err) {
-      if (import.meta.env.DEV) console.error("[Portfolio] chart data failed:", err);
+      if (import.meta.env.DEV) console.error("[Backfill] failed:", err);
     } finally { setChartLoading(false); }
   }, [marketHoldings, chartRange]);
 
   useEffect(() => { refreshPrices(); const i = setInterval(refreshPrices, 30000); return () => clearInterval(i); }, [refreshPrices]);
   useEffect(() => { refreshChart(); }, [refreshChart]);
 
+  // Load snapshots from Supabase for 30d+ chart ranges
+  useEffect(() => {
+    let cancelled = false;
+    setSnapshotLoading(true);
+    loadSnapshots(chartRange).then(data => {
+      if (cancelled) return;
+      setSnapshotData(data);
+      setSnapshotLoading(false);
+    }).catch(() => { if (cancelled) return; setSnapshotLoading(false); });
+    return () => { cancelled = true; };
+  }, [chartRange]);
+
+
   const chartData = useMemo(() => {
-    const totalCost = holdings.reduce((sum, h) => {
-      if ((h.assetClass || "market") === "cash") return sum + h.qty;
-      return sum + (h.costBasis * h.qty) / (h.leverage || 1);
-    }, 0);
-
-    const useHourly = chartRange <= 7;
-    const startMs = Date.now() - chartRange * 24 * 60 * 60 * 1000;
-    const startKey = useHourly
-      ? new Date(startMs).toISOString().slice(0, 13)
-      : new Date(startMs).toISOString().slice(0, 10);
-
-    // ── Snapshot data points (actual tracked portfolio value) ──
-    const snapPoints = {};
-    snapshots.forEach(s => {
-      // Normalize old daily keys ("YYYY-MM-DD") to hourly format when in hourly mode
-      const key = useHourly
-        ? (s.date.length > 10 ? s.date : s.date + "T00")
-        : s.date.slice(0, 10);
-      if (key >= startKey) snapPoints[key] = s.value;
+    if (snapshotData.length === 0) return [];
+    // Group by day, take last snapshot per day
+    const byDay = {};
+    snapshotData.forEach(s => {
+      const day = s.date.slice(0, 10);
+      byDay[day] = { date: day, totalValue: s.totalValue, costBasis: s.costBasis };
     });
-
-    // ── Kline-reconstructed data points (fills historical gaps) ──
-    const klinePoints = {};
-    if (Object.keys(klineData).length > 0) {
-      const assetTimePrice = {};
-      marketHoldings.forEach(h => {
-        const key = h.symbol.toUpperCase();
-        const klines = klineData[key];
-        if (!klines) return;
-        if (!assetTimePrice[key]) assetTimePrice[key] = {};
-        klines.forEach(k => {
-          const timeKey = useHourly ? k.date : k.date?.slice(0, 10);
-          if (!timeKey || !k.close) return;
-          assetTimePrice[key][timeKey] = k.close;
-        });
-      });
-
-      const allTimes = new Set();
-      Object.values(assetTimePrice).forEach(dm => Object.keys(dm).forEach(d => allTimes.add(d)));
-
-      const collectibleTotal = collectibleHoldings.reduce((s, h) => s + (h.manualPrice || 0) * h.qty, 0);
-      const cashTotal = cashHoldings.reduce((s, h) => s + h.qty, 0);
-      const staticTotal = collectibleTotal + cashTotal;
-
-      const assetKeys = marketHoldings.map(h => h.symbol.toUpperCase()).filter(k => assetTimePrice[k]);
-      const numAssets = assetKeys.length;
-      const lastKnown = {};
-      let allAssetsSeenOnce = false;
-
-      [...allTimes].sort().forEach(t => {
-        let mv = 0;
-        let assetsWithData = 0;
-        marketHoldings.forEach(h => {
-          const key = h.symbol.toUpperCase();
-          const price = assetTimePrice[key]?.[t];
-          if (price != null) lastKnown[key] = price;
-          const usePrice = price ?? lastKnown[key];
-          if (usePrice != null) {
-            mv += (usePrice * h.qty) / (h.leverage || 1);
-            assetsWithData++;
-          }
-        });
-        if (assetsWithData >= numAssets) allAssetsSeenOnce = true;
-        if (allAssetsSeenOnce) klinePoints[t] = mv + staticTotal;
-      });
-    }
-
-    // ── Merge: kline data as base, snapshots override (actual tracked value) ──
-    const merged = { ...klinePoints };
-    Object.entries(snapPoints).forEach(([t, v]) => { merged[t] = v; });
-
-    const sortedKeys = Object.keys(merged).sort();
-    return sortedKeys.map(t => ({
-      date: t,
-      totalValue: merged[t],
-      costBasis: totalCost,
-    }));
-  }, [klineData, snapshots, marketHoldings, collectibleHoldings, cashHoldings, holdings, chartRange]);
+    return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+  }, [snapshotData]);
 
   const summary = useMemo(() => {
     let marketValue = 0, marketCost = 0, marketPnl = 0;
     const enrichedMarket = marketHoldings.map(h => {
       const pd = prices[h.symbol.toUpperCase()];
       const cp = pd?.price || 0, ch = pd?.change || 0, lev = h.leverage || 1;
-      const mv = (cp * h.qty) / lev;           // margin value (capital at risk)
+      const mv = (h.costBasis * h.qty) / lev + (cp - h.costBasis) * h.qty; // position equity = margin + P&L
       const ct = (h.costBasis * h.qty) / lev;   // margin cost (capital deployed)
       const pnl = (cp - h.costBasis) * h.qty;   // notional P&L — what actually hits your account
       const pp = ct > 0 ? pnl / ct : 0;         // return on margin
@@ -535,8 +562,19 @@ export default function Portfolio({ onNavigateToChart }) {
     setNextId(p => p + 1);
     if (qty >= closingHolding.qty) setHoldings(prev => prev.filter(h => h.id !== closingHolding.id));
     else setHoldings(prev => prev.map(h => h.id === closingHolding.id ? { ...h, qty: h.qty - qty } : h));
+    // Add proceeds to Trading Cash
+    const lev = closingHolding.leverage || 1;
+    const margin = (closingHolding.costBasis * qty) / lev;
+    const proceeds = lev > 1 ? margin + realizedPnl : exitPrice * qty;
+    if (proceeds > 0 && (closingHolding.assetClass || "market") === "market") {
+      setHoldings(prev => {
+        const ci = prev.findIndex(h => h.assetClass === "cash" && h.symbol === "TRADING_CASH");
+        if (ci >= 0) return prev.map((h, i) => i === ci ? { ...h, qty: h.qty + proceeds } : h);
+        return [...prev, { id: nextId + 1, assetClass: "cash", symbol: "TRADING_CASH", label: "Trading Cash", type: "cash", exchange: null, qty: proceeds, costBasis: 0, leverage: 1, manualPrice: null, manualPriceDate: null, openDate: closeDate, notes: "From closed positions" }];
+      });
+    }
     setClosingHolding(null);
-  }, [closingHolding, closePrice, closeQty, closeDate, closeNotes, nextId]);
+  }, [closingHolding, closePrice, closeQty, closeDate, closeNotes, nextId, holdings]);
 
   const deleteClosedTrade = useCallback((id) => { setClosedTrades(prev => prev.filter(t => t.id !== id)); }, []);
 
@@ -630,7 +668,7 @@ export default function Portfolio({ onNavigateToChart }) {
           </div>
         </div>
         <div style={{ ...S.card, padding: "16px 8px 8px" }}>
-          {chartLoading && chartData.length === 0 ? (
+          {(chartLoading || snapshotLoading) && chartData.length === 0 ? (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>Loading chart data...</div>
           ) : chartData.length === 0 ? (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>No historical data. Add market assets and refresh.</div>

@@ -1,10 +1,19 @@
 {
-  "buildCommand": "vite build",
-  "outputDirectory": "dist",
-  "framework": "vite",
-  "rewrites": [
-    { "source": "/api/coinbase/:path*", "destination": "/api/coinbase/:path*" },
-    { "source": "/api/phemex/:path*", "destination": "/api/phemex/:path*" },
-    { "source": "/api/yahoo/:path*", "destination": "/api/yahoo/:path*" }
+  "builds": [
+    { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } },
+    { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
+    { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
+    { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
+    { "src": "api/yahoo/[...path].js", "use": "@vercel/node" },
+    { "src": "api/news/feed.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
+    { "src": "/api/coingecko/(.*)", "dest": "/api/coingecko/[...path].js" },
+    { "src": "/api/phemex/(.*)", "dest": "/api/phemex/[...path].js" },
+    { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
+    { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
