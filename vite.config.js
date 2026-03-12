@@ -40,6 +40,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/yugioh/, ''),
       },
+      '/api/pricecharting': {
+        target: 'https://www.pricecharting.com/api',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/pricecharting/, ''),
+      },
     },
   },
   build: {

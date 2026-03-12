@@ -7,6 +7,7 @@
     { "src": "api/yahoo/[...path].js", "use": "@vercel/node" },
     { "src": "api/pokemon/[...path].js", "use": "@vercel/node" },
     { "src": "api/yugioh/[...path].js", "use": "@vercel/node" },
+    { "src": "api/pricecharting/[...path].js", "use": "@vercel/node" },
     { "src": "api/news/feed.js", "use": "@vercel/node" }
   ],
   "routes": [
@@ -16,6 +17,7 @@
     { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
     { "src": "/api/pokemon/(.*)", "dest": "/api/pokemon/[...path].js" },
     { "src": "/api/yugioh/(.*)", "dest": "/api/yugioh/[...path].js" },
+    { "src": "/api/pricecharting/(.*)", "dest": "/api/pricecharting/[...path].js" },
     { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
