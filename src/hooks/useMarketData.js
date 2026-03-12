@@ -6,9 +6,9 @@
  *   Perp crypto    → Phemex   (api.phemex.com)
  *   Equities/ETFs  → Yahoo Finance (query1.finance.yahoo.com)
  * 
- * Coinbase klines: 1h granularity grouped into 4h
+ * Coinbase klines: 1h granularity grouped into 2h
  * Phemex klines: 4h granularity
- * Yahoo klines: 1h granularity grouped into 4h
+ * Yahoo klines: 1h granularity grouped into 2h
  * All requests proxy through Vite dev server to avoid CORS.
  */
 
@@ -113,7 +113,7 @@ async function coinbase24h(cbSymbol) {
   } catch { return 0 }
 }
 
-// Coinbase candles — 1h (3600s), grouped into 4h client-side
+// Coinbase candles — 1h (3600s), grouped into 2h client-side
 async function coinbaseCandles(cbSymbol, startTimeMs) {
   console.log(`[CB] candles 1h ${cbSymbol} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   const results = []
@@ -150,17 +150,17 @@ async function coinbaseCandles(cbSymbol, startTimeMs) {
     } catch (e) { console.warn(`[CB] candles err:`, e.message); break }
   }
 
-  // Group 1h into 4h buckets
-  const by4h = {}
+  // Group 1h into 2h buckets
+  const by2h = {}
   for (const r of results) {
     if (r.close <= 0) continue
     const d = new Date(r.ts)
-    const h4 = Math.floor(d.getUTCHours() / 4) * 4
-    const key = `${d.toISOString().slice(0, 10)}T${String(h4).padStart(2, "0")}`
-    if (!by4h[key] || r.ts > by4h[key].ts) by4h[key] = { ...r, date: key }
+    const h2 = Math.floor(d.getUTCHours() / 2) * 2
+    const key = `${d.toISOString().slice(0, 10)}T${String(h2).padStart(2, "0")}`
+    if (!by2h[key] || r.ts > by2h[key].ts) by2h[key] = { ...r, date: key }
   }
-  const sorted = Object.values(by4h).sort((a, b) => a.ts - b.ts)
-  console.log(`[CB] candles ${cbSymbol}: ${results.length} raw 1h → ${sorted.length} 4h bars`)
+  const sorted = Object.values(by2h).sort((a, b) => a.ts - b.ts)
+  console.log(`[CB] candles ${cbSymbol}: ${results.length} raw 1h → ${sorted.length} 2h bars`)
   return sorted
 }
 
@@ -298,7 +298,7 @@ async function yahooQuote(ticker) {
   } catch (e) { console.warn(`[YF] quote err:`, e.message); return null }
 }
 
-// Yahoo Finance klines — 1h candles, grouped into 4h
+// Yahoo Finance klines — 1h candles, grouped into 2h
 async function yahooKlines(ticker, startTimeMs) {
   console.log(`[YF] klines ${ticker} from ${new Date(startTimeMs).toISOString().split("T")[0]}`)
   try {
@@ -340,17 +340,17 @@ async function yahooKlines(ticker, startTimeMs) {
       })
     }
 
-    // Group 1h into 4h buckets
-    const by4h = {}
+    // Group 1h into 2h buckets
+    const by2h = {}
     for (const r of raw) {
       const d = new Date(r.ts)
-      const h4 = Math.floor(d.getUTCHours() / 4) * 4
-      const key = `${d.toISOString().slice(0, 10)}T${String(h4).padStart(2, "0")}`
-      if (!by4h[key] || r.ts > by4h[key].ts) by4h[key] = { ...r, date: key }
+      const h2 = Math.floor(d.getUTCHours() / 2) * 2
+      const key = `${d.toISOString().slice(0, 10)}T${String(h2).padStart(2, "0")}`
+      if (!by2h[key] || r.ts > by2h[key].ts) by2h[key] = { ...r, date: key }
     }
 
-    const sorted = Object.values(by4h).sort((a, b) => a.ts - b.ts)
-    console.log(`[YF] klines ${ticker}: ${raw.length} raw 1h → ${sorted.length} 4h bars, $${sorted[0]?.close} → $${sorted[sorted.length - 1]?.close}`)
+    const sorted = Object.values(by2h).sort((a, b) => a.ts - b.ts)
+    console.log(`[YF] klines ${ticker}: ${raw.length} raw 1h → ${sorted.length} 2h bars, $${sorted[0]?.close} → $${sorted[sorted.length - 1]?.close}`)
     return sorted
   } catch (e) { console.warn(`[YF] klines err:`, e.message); return [] }
 }
