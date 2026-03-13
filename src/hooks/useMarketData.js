@@ -513,6 +513,7 @@ export async function fetchTickers(holdings) {
     const resolved = resolveExchange(h.symbol, h.type, h.exchange)
     if (!resolved || seen.has(resolved.key)) continue
     seen.add(resolved.key)
+    const rawKey = h.symbol.toUpperCase()
     if(import.meta.env.DEV) console.log(`[Ticker] ${h.symbol}(${h.type}/${h.exchange || "auto"}) → ${resolved.exchange}:${resolved.sym}`)
 
     tasks.push((async () => {
@@ -543,7 +544,11 @@ export async function fetchTickers(holdings) {
         data = await yahooQuote(resolved.sym)
       }
 
-      if (data && data.price > 0) results[resolved.key] = data
+      if (data && data.price > 0) {
+        results[resolved.key] = data
+        // Also store under raw symbol so Portfolio can look up by h.symbol.toUpperCase()
+        if (rawKey !== resolved.key) results[rawKey] = data
+      }
     })())
   }
 
