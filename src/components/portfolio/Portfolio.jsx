@@ -727,19 +727,23 @@ export default function Portfolio({ onNavigateToChart }) {
 
       setLastRefresh(new Date());
       // Record snapshot to Supabase every 10 min for hourly OHLC candles
+      // Only snapshot when ALL market holdings have a price — partial data creates false dips
       if (shouldTakeSnapshot()) {
-        let mv = 0, cv = 0, cashV = 0, cb = 0;
-        marketHoldings.forEach(h => {
-          const p = result[h.symbol.toUpperCase()]?.price || 0;
-          const lev = h.leverage || 1;
-          const margin = (h.costBasis * h.qty) / lev;
-          const pnl = (p - h.costBasis) * h.qty;
-          mv += margin + pnl; cb += margin;
-        });
-        collectibleHoldings.forEach(h => { cv += (h.manualPrice || 0) * h.qty; });
-        cashHoldings.forEach(h => { cashV += h.qty; cb += h.qty; });
-        const tv = mv + cv + cashV;
-        if (tv > 0) saveSnapshot({ totalValue: tv, marketValue: mv, collectibleValue: cv, cashValue: cashV, costBasis: cb, unrealizedPnl: tv - cb });
+        const allPriced = marketHoldings.every(h => (result[h.symbol.toUpperCase()]?.price || 0) > 0);
+        if (allPriced) {
+          let mv = 0, cv = 0, cashV = 0, cb = 0;
+          marketHoldings.forEach(h => {
+            const p = result[h.symbol.toUpperCase()]?.price || 0;
+            const lev = h.leverage || 1;
+            const margin = (h.costBasis * h.qty) / lev;
+            const pnl = (p - h.costBasis) * h.qty;
+            mv += margin + pnl; cb += margin;
+          });
+          collectibleHoldings.forEach(h => { cv += (h.manualPrice || 0) * h.qty; });
+          cashHoldings.forEach(h => { cashV += h.qty; cb += h.qty; });
+          const tv = mv + cv + cashV;
+          if (tv > 0) saveSnapshot({ totalValue: tv, marketValue: mv, collectibleValue: cv, cashValue: cashV, costBasis: cb, unrealizedPnl: tv - cb });
+        }
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] refresh failed:", err);
