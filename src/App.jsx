@@ -35,27 +35,28 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: COLORS.accent.blue, boxShadow: `0 0 10px ${COLORS.accent.blue}80` }} />
-            <span style={{ fontFamily: FONTS.ui, fontSize: 14, fontWeight: 700, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>OPTIONS LAB</span>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent.blue }} />
+            <span style={{ fontFamily: FONTS.ui, fontSize: 13, fontWeight: 700, color: COLORS.text.primary, letterSpacing: "0.5px", textTransform: "uppercase" }}>Options Lab</span>
           </div>
           <div style={{ width: 1, height: 20, background: COLORS.border.secondary }} />
 
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 2, background: COLORS.bg.primary, borderRadius: 6, padding: 2 }}>
+          {/* Tabs — flat underline style */}
+          <div style={{ display: "flex", gap: 0, height: 44, alignItems: "stretch" }}>
             {[
-              { id: "charts", label: "Charts", icon: "📊" },
-              { id: "simulator", label: "Simulator", icon: "⚡" },
-              { id: "portfolio", label: "Portfolio", icon: "◉" },
-              { id: "pokemon", label: "Pokemon Market", icon: "⚡" },
+              { id: "charts", label: "Charts" },
+              { id: "simulator", label: "Simulator" },
+              { id: "portfolio", label: "Portfolio" },
+              { id: "pokemon", label: "Pokemon" },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                padding: "5px 14px", fontSize: 11, fontWeight: activeTab === tab.id ? 600 : 400,
-                fontFamily: FONTS.mono, cursor: "pointer", border: "none", borderRadius: 5,
-                background: activeTab === tab.id ? COLORS.accent.blueBg : "transparent",
-                color: activeTab === tab.id ? COLORS.accent.blue : COLORS.text.dim,
-                transition: "all 0.15s", display: "flex", alignItems: "center", gap: 5,
+                padding: "0 16px", fontSize: 11, fontWeight: 500, letterSpacing: "0.3px",
+                fontFamily: FONTS.ui, cursor: "pointer", border: "none",
+                borderBottom: activeTab === tab.id ? `2px solid ${COLORS.accent.blue}` : "2px solid transparent",
+                background: "transparent",
+                color: activeTab === tab.id ? COLORS.text.primary : COLORS.text.dim,
+                transition: "all 0.15s",
               }}>
-                <span style={{ fontSize: 10 }}>{tab.icon}</span> {tab.label}
+                {tab.label}
               </button>
             ))}
           </div>
