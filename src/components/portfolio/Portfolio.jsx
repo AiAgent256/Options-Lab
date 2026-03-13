@@ -16,8 +16,8 @@ const ASSET_CLASS_LABELS = {
 
 const ASSET_CLASS_COLORS = {
   market: COLORS.accent.blue,
-  collectible: "#c084fc",
-  cash: "#34d399",
+  collectible: COLORS.accent.blue,
+  cash: COLORS.accent.blue,
 };
 
 const DEFAULT_HOLDINGS = [];
@@ -296,7 +296,7 @@ function UpdateValueModal({ holding, onSave, onCancel }) {
     }} onClick={onCancel}>
       <div style={{
         background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
-        borderRadius: 12, padding: 24, minWidth: 340, fontFamily: FONTS.mono,
+        borderRadius: 6, padding: 24, minWidth: 340, fontFamily: FONTS.mono,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
           Update Value: {holding.label || holding.symbol}
@@ -368,7 +368,7 @@ function EditCardModal({ holding, onSave, onCancel }) {
     }} onClick={onCancel}>
       <div style={{
         background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
-        borderRadius: 12, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
+        borderRadius: 6, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
         maxHeight: "85vh", overflowY: "auto",
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
@@ -509,7 +509,7 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
     }} onClick={onCancel}>
       <div style={{
         background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
-        borderRadius: 12, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
+        borderRadius: 6, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
         maxHeight: "85vh", overflowY: "auto",
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
@@ -984,12 +984,12 @@ export default function Portfolio({ onNavigateToChart }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.ui, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>Portfolio Tracker</div>
-          <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 4 }}>
+          <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 4, fontFamily: FONTS.ui }}>
             {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading..."}
-            {loading && " • Refreshing..."}
-            {syncStatus === "syncing" && " • Syncing..."}
-            {syncStatus === "synced" && " • ☁ Synced"}
-            {syncStatus === "error" && " • ⚠ Offline"}
+            {loading && " · Refreshing..."}
+            {syncStatus === "syncing" && " · Syncing..."}
+            {syncStatus === "synced" && " · Synced"}
+            {syncStatus === "error" && " · Offline"}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -1016,9 +1016,9 @@ export default function Portfolio({ onNavigateToChart }) {
       <div style={S.summaryRow}>
         {[
           { label: "Total Net Worth", value: B(fmtDollar(summary.totalValue)), color: COLORS.text.primary },
-          { label: "Market Assets", value: B(fmtDollar(summary.marketValue)), color: ASSET_CLASS_COLORS.market },
-          { label: "Collectibles", value: B(fmtDollar(summary.collectibleValue)), color: ASSET_CLASS_COLORS.collectible },
-          { label: "Cash & Margin", value: B(fmtDollar(summary.cashValue)), color: ASSET_CLASS_COLORS.cash },
+          { label: "Market Assets", value: B(fmtDollar(summary.marketValue)), color: COLORS.text.primary },
+          { label: "Collectibles", value: B(fmtDollar(summary.collectibleValue)), color: COLORS.text.primary },
+          { label: "Cash & Margin", value: B(fmtDollar(summary.cashValue)), color: COLORS.text.primary },
           { label: "Unrealized P&L", value: B(`${fmtDollar(summary.totalPnl)} (${fmtPnlPct(summary.totalPnlPct)})`), color: pnlColor(summary.totalPnl) },
           { label: "Realized P&L", value: B(fmtDollar(summary.realizedPnl)), color: pnlColor(summary.realizedPnl) },
         ].map((c, i) => (
@@ -1066,22 +1066,22 @@ export default function Portfolio({ onNavigateToChart }) {
         </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h %", "24h $", "Value", "P&L", "P&L %", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h %", "24h $", "Value", "P&L", "P&L %", ""].map((c, i) => <th key={c} style={{ ...S.th, ...(i > 0 && i < 10 ? { textAlign: "right" } : {}) }}>{c}</th>)}</tr></thead>
             <tbody>
               {summary.enrichedMarket.length === 0 ? (
                 <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No market assets</td></tr>
               ) : summary.enrichedMarket.map(h => (
                 <tr key={h.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}<span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{h.symbol}</span></td>
-                  <td style={S.td}>{B(h.qty)}</td>
-                  <td style={{ ...S.td, color: (h.leverage || 1) > 1 ? COLORS.accent.blue : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}</td>
-                  <td style={S.td}>{B(fmtPrice(h.costBasis))}</td>
-                  <td style={{ ...S.td, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnl24h), fontWeight: 500 }}>{B(h.pnl24h ? fmtPnl(h.pnl24h) : "—")}</td>
-                  <td style={S.td}>{B(h.currentPrice > 0 ? fmtDollar(h.marketValue) : "—")}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnl), fontWeight: 500 }}>{B(h.currentPrice > 0 ? fmtPnl(h.pnl) : "—")}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>{h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(h.qty)}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: (h.leverage || 1) > 1 ? COLORS.accent.blue : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(h.costBasis))}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnl24h), fontWeight: 500 }}>{B(h.pnl24h ? fmtPnl(h.pnl24h) : "—")}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(h.currentPrice > 0 ? fmtDollar(h.marketValue) : "—")}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnl), fontWeight: 500 }}>{B(h.currentPrice > 0 ? fmtPnl(h.pnl) : "—")}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnlPct) }}>{h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}</td>
                   <td style={{ ...S.td, whiteSpace: "nowrap" }}>
                     <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Close</button>{" "}
                     <button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button>
@@ -1113,7 +1113,7 @@ export default function Portfolio({ onNavigateToChart }) {
         </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Item", "Qty", "Grade", "Paid", "Current Value", "Total Value", "P&L", "P&L %", "Updated", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Item", "Qty", "Grade", "Paid", "Current Value", "Total Value", "P&L", "P&L %", "Updated", ""].map((c, i) => <th key={c} style={{ ...S.th, ...(i >= 1 && i <= 7 ? { textAlign: "right" } : {}) }}>{c}</th>)}</tr></thead>
             <tbody>
               {summary.enrichedCollectibles.length === 0 ? (
                 <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No collectibles yet. Click "+ Add Asset" to add Pokemon cards.</td></tr>
@@ -1122,20 +1122,20 @@ export default function Portfolio({ onNavigateToChart }) {
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary, maxWidth: 200 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {h.label || h.symbol}
-                      {h.cardGame === "pokemon" && <span style={{ ...S.badge("#f59e0b"), fontSize: 8, padding: "1px 4px" }}>PKM</span>}
-                      {h.cardGame === "yugioh" && <span style={{ ...S.badge("#8b5cf6"), fontSize: 8, padding: "1px 4px" }}>YGO</span>}
+                      {h.cardGame === "pokemon" && <span style={{ ...S.badge(COLORS.accent.blue), fontSize: 8, padding: "1px 4px" }}>PKM</span>}
+                      {h.cardGame === "yugioh" && <span style={{ ...S.badge(COLORS.accent.blue), fontSize: 8, padding: "1px 4px" }}>YGO</span>}
                     </div>
                     {h.cardSet && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 2 }}>{h.cardSet}{h.variant && h.variant !== "normal" ? ` · ${h.variant}` : ""}</div>}
                     {h.notes && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 1, fontStyle: "italic" }}>{h.notes}</div>}
                   </td>
-                  <td style={S.td}>{B(h.qty)}</td>
-                  <td style={S.td}>{h.grade ? <span style={S.badge(ASSET_CLASS_COLORS.collectible)}>{h.grade}</span> : "—"}</td>
-                  <td style={S.td}>{B(fmtPrice(h.costBasis))}</td>
-                  <td style={{ ...S.td, color: COLORS.text.primary, cursor: "pointer", textDecoration: "underline dotted" }}
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(h.qty)}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{h.grade ? <span style={S.badge(COLORS.accent.blue)}>{h.grade}</span> : "—"}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(h.costBasis))}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: COLORS.text.primary, cursor: "pointer", textDecoration: "underline dotted" }}
                     onClick={() => setUpdatingHolding(h)} title="Click to update">{B(fmtPrice(h.manualPrice || 0))}</td>
-                  <td style={S.td}>{B(fmtDollar(h.marketValue))}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnl), fontWeight: 500 }}>{B(fmtPnl(h.pnl))}</td>
-                  <td style={{ ...S.td, color: pnlColor(h.pnlPct) }}>{fmtPnlPct(h.pnlPct)}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtDollar(h.marketValue))}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnl), fontWeight: 500 }}>{B(fmtPnl(h.pnl))}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnlPct) }}>{fmtPnlPct(h.pnlPct)}</td>
                   <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim }}>{h.manualPriceDate || "—"}</td>
                   <td style={{ ...S.td, whiteSpace: "nowrap" }}>
                     <button style={S.btn} onClick={() => setEditingCard(h)} title="Edit card fields">Edit</button>{" "}
@@ -1196,21 +1196,21 @@ export default function Portfolio({ onNavigateToChart }) {
         <div style={S.sectionTitle}><span>Closed Trades</span><div style={S.divider} /></div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Asset", "Type", "Qty", "Entry", "Exit", "Open", "Close", "Realized P&L", "Return", "Notes", ""].map(c => <th key={c} style={S.th}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Asset", "Type", "Qty", "Entry", "Exit", "Open", "Close", "Realized P&L", "Return", "Notes", ""].map((c, i) => <th key={c} style={{ ...S.th, ...([2,3,4,7,8].includes(i) ? { textAlign: "right" } : {}) }}>{c}</th>)}</tr></thead>
             <tbody>
               {closedTrades.length === 0 ? (
                 <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 24 }}>No closed trades yet.</td></tr>
               ) : closedTrades.map(t => (
                 <tr key={t.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{t.label || t.symbol}</td>
-                  <td style={S.td}><span style={S.badge(ASSET_CLASS_COLORS[t.assetClass || "market"])}>{(t.assetClass || "market").slice(0, 6)}</span></td>
-                  <td style={S.td}>{B(t.qty)}</td>
-                  <td style={S.td}>{B(fmtPrice(t.costBasis))}</td>
-                  <td style={S.td}>{B(fmtPrice(t.exitPrice))}</td>
+                  <td style={S.td}><span style={S.badge(COLORS.accent.blue)}>{(t.assetClass || "market").slice(0, 6)}</span></td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(t.qty)}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(t.costBasis))}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(t.exitPrice))}</td>
                   <td style={{ ...S.td, fontSize: 10 }}>{t.openDate}</td>
                   <td style={{ ...S.td, fontSize: 10 }}>{t.closeDate}</td>
-                  <td style={{ ...S.td, color: pnlColor(t.realizedPnl), fontWeight: 600 }}>{B(fmtPnl(t.realizedPnl))}</td>
-                  <td style={{ ...S.td, color: pnlColor(t.pnlPct) }}>{fmtPnlPct(t.pnlPct)}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(t.realizedPnl), fontWeight: 600 }}>{B(fmtPnl(t.realizedPnl))}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(t.pnlPct) }}>{fmtPnlPct(t.pnlPct)}</td>
                   <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{t.notes || "—"}</td>
                   <td style={S.td}><button style={S.btnDanger} onClick={() => deleteClosedTrade(t.id)}>✕</button></td>
                 </tr>
@@ -1226,7 +1226,7 @@ export default function Portfolio({ onNavigateToChart }) {
       {editingCard && <EditCardModal holding={editingCard} onSave={(fields) => saveCardEdit(editingCard.id, fields)} onCancel={() => setEditingCard(null)} />}
       {closingHolding && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setClosingHolding(null)}>
-          <div style={{ background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 440, fontFamily: FONTS.mono }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 6, padding: 24, minWidth: 380, maxWidth: 440, fontFamily: FONTS.mono }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
               {closingHolding.assetClass === "collectible" ? "Sell" : "Close"}: {closingHolding.label || closingHolding.symbol}
             </div>
