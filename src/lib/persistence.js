@@ -9,6 +9,8 @@
 import { supabase } from "./supabase";
 
 const TABLE = "portfolio_data";
+// Single-user architecture: all portfolio data lives in one row.
+// If multi-user support is ever needed, replace with authenticated user IDs.
 const ROW_ID = "default";
 
 // ─── localStorage helpers ───────────────────────────────────────────────────

@@ -9,37 +9,8 @@
  * Equities: Yahoo Finance REST polling (15s)
  */
 
-// ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
-
-const CB_PRODUCTS = {
-  BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", DOGE: "DOGE-USD",
-  XRP: "XRP-USD", ADA: "ADA-USD", AVAX: "AVAX-USD", DOT: "DOT-USD",
-  LINK: "LINK-USD", NEAR: "NEAR-USD", SUI: "SUI-USD", APT: "APT-USD",
-  ARB: "ARB-USD", OP: "OP-USD", MATIC: "MATIC-USD", SEI: "SEI-USD",
-  INJ: "INJ-USD", TIA: "TIA-USD", RENDER: "RENDER-USD", HYPE: "HYPE-USD",
-  LTC: "LTC-USD", UNI: "UNI-USD", AAVE: "AAVE-USD", ATOM: "ATOM-USD",
-  FIL: "FIL-USD", PEPE: "PEPE-USD", SHIB: "SHIB-USD", FET: "FET-USD",
-  ZRO: "ZRO-USD",
-}
-
-const PH_PRODUCTS = {
-  BTC: "BTCUSDT", ETH: "ETHUSDT", SOL: "SOLUSDT", DOGE: "DOGEUSDT",
-  XRP: "XRPUSDT", ADA: "ADAUSDT", AVAX: "AVAXUSDT", DOT: "DOTUSDT",
-  LINK: "LINKUSDT", NEAR: "NEARUSDT", SUI: "SUIUSDT", APT: "APTUSDT",
-  ARB: "ARBUSDT", OP: "OPUSDT", SEI: "SEIUSDT", INJ: "INJUSDT",
-  TIA: "TIAUSDT", WIF: "WIFUSDT", HYPE: "HYPEUSDT",
-  RENDER: "RENDERUSDT", FET: "FETUSDT", TAO: "TAOUSDT",
-  CC: "CCUSDT", PEPE: "1000PEPEUSDT", ZRO: "ZROUSDT",
-}
-
-const CG_IDS = {
-  BTC: "bitcoin", ETH: "ethereum", SOL: "solana", DOGE: "dogecoin",
-  XRP: "ripple", ADA: "cardano", AVAX: "avalanche-2", DOT: "polkadot",
-  LINK: "chainlink", NEAR: "near", SUI: "sui", APT: "aptos",
-  HYPE: "hyperliquid", ZRO: "layerzero-2", CC: "cross-the-ages",
-  RENDER: "render-token", FET: "artificial-superintelligence-alliance",
-  INJ: "injective-protocol", TIA: "celestia", ARB: "arbitrum",
-}
+// ─── SYMBOL MAPS (from shared canonical source) ────────────────────────────
+import { COINBASE_PRODUCTS as CB_PRODUCTS, PHEMEX_PRODUCTS as PH_PRODUCTS, COINGECKO_IDS as CG_IDS } from "../utils/symbols"
 
 // ─── PARSE CHART SYMBOL ─────────────────────────────────────────────────────
 

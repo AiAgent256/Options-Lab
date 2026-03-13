@@ -26,46 +26,10 @@ const SYMBOL_ALIASES = {
   NVIDIA: "NVDA", NUSCALE: "SMR",
 }
 
-// ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
-// Known-good product IDs on each exchange's API.
+// ─── SYMBOL MAPS (from shared canonical source) ────────────────────────────
 // If a symbol is NOT here, we still try the standard format,
 // then fall back to CoinGecko (crypto) or Yahoo Finance (equities) if the exchange 404s.
-
-const COINBASE_MAP = {
-  BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", DOGE: "DOGE-USD",
-  XRP: "XRP-USD", ADA: "ADA-USD", AVAX: "AVAX-USD", DOT: "DOT-USD",
-  LINK: "LINK-USD", NEAR: "NEAR-USD", SUI: "SUI-USD", APT: "APT-USD",
-  ARB: "ARB-USD", OP: "OP-USD", MATIC: "MATIC-USD", SEI: "SEI-USD",
-  INJ: "INJ-USD", TIA: "TIA-USD", RENDER: "RENDER-USD",
-  FET: "FET-USD", HYPE: "HYPE-USD",
-  // NOTE: ZRO removed — it's on Coinbase retail but NOT on their Exchange API
-}
-
-const PHEMEX_MAP = {
-  BTC: "BTCUSDT", ETH: "ETHUSDT", SOL: "SOLUSDT", DOGE: "DOGEUSDT",
-  XRP: "XRPUSDT", ADA: "ADAUSDT", AVAX: "AVAXUSDT", DOT: "DOTUSDT",
-  LINK: "LINKUSDT", NEAR: "NEARUSDT", SUI: "SUIUSDT", APT: "APTUSDT",
-  ARB: "ARBUSDT", OP: "OPUSDT", SEI: "SEIUSDT", INJ: "INJUSDT",
-  TIA: "TIAUSDT", WIF: "WIFUSDT", HYPE: "HYPEUSDT",
-  RENDER: "RENDERUSDT", FET: "FETUSDT", TAO: "TAOUSDT",
-  CC: "CCUSDT", PEPE: "1000PEPEUSDT", ZRO: "ZROUSDT",
-}
-
-// ─── COINGECKO FALLBACK ────────────────────────────────────────────────────
-// CoinGecko free API: no auth, ~30 req/min, comprehensive crypto coverage.
-// Used as fallback when Coinbase Exchange API / Phemex don't list a token.
-// Map: ticker symbol → CoinGecko coin ID
-const COINGECKO_ID_MAP = {
-  BTC: "bitcoin", ETH: "ethereum", SOL: "solana", DOGE: "dogecoin",
-  XRP: "ripple", ADA: "cardano", AVAX: "avalanche-2", DOT: "polkadot",
-  LINK: "chainlink", NEAR: "near", SUI: "sui", APT: "aptos",
-  ARB: "arbitrum", OP: "optimism", MATIC: "matic-network", SEI: "sei-network",
-  INJ: "injective-protocol", TIA: "celestia", RENDER: "render-token",
-  FET: "artificial-superintelligence-alliance", HYPE: "hyperliquid",
-  WIF: "dogwifcoin", TAO: "bittensor",
-  ZRO: "layerzero", PEPE: "pepe",
-  ATOM: "cosmos", UNI: "uniswap", LTC: "litecoin",
-}
+import { COINBASE_PRODUCTS as COINBASE_MAP, PHEMEX_PRODUCTS as PHEMEX_MAP, COINGECKO_IDS as COINGECKO_ID_MAP } from "../utils/symbols"
 
 function coingeckoId(key) {
   return COINGECKO_ID_MAP[key] || key.toLowerCase()

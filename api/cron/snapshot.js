@@ -18,16 +18,9 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-// ─── SYMBOL MAPS (duplicated from useMarketData for server-side use) ────────
-
-const COINBASE_MAP = {
-  BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", DOGE: "DOGE-USD",
-  XRP: "XRP-USD", ADA: "ADA-USD", AVAX: "AVAX-USD", DOT: "DOT-USD",
-  LINK: "LINK-USD", NEAR: "NEAR-USD", SUI: "SUI-USD", APT: "APT-USD",
-  ARB: "ARB-USD", OP: "OP-USD", MATIC: "MATIC-USD", SEI: "SEI-USD",
-  INJ: "INJ-USD", TIA: "TIA-USD", RENDER: "RENDER-USD",
-  FET: "FET-USD", HYPE: "HYPE-USD",
-}
+// ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
+// Canonical source: src/utils/symbols.js — keep in sync when adding symbols.
+import { COINBASE_PRODUCTS as COINBASE_MAP } from "../../src/utils/symbols.js"
 
 // ─── PRICE FETCHERS (server-side, no proxy needed) ──────────────────────────
 

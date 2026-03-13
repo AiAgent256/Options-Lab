@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, memo } from "react"
 import LiveChart from "./LiveChart"
 import NewsPanel from "./NewsPanel"
+import { QUICK_SYMBOLS } from "../utils/constants"
 
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "optlab:multicharts"
@@ -17,26 +18,6 @@ function loadCharts() {
     return saved ? JSON.parse(saved) : DEFAULT_CHARTS
   } catch { return DEFAULT_CHARTS }
 }
-
-// ─── PRESETS ─────────────────────────────────────────────────────────────────
-const QUICK_SYMBOLS = [
-  { label: "BTC", sym: "COINBASE:BTCUSD", cat: "crypto" },
-  { label: "ETH", sym: "COINBASE:ETHUSD", cat: "crypto" },
-  { label: "SOL", sym: "COINBASE:SOLUSD", cat: "crypto" },
-  { label: "HYPE", sym: "COINBASE:HYPEUSD", cat: "crypto" },
-  { label: "ZRO", sym: "COINBASE:ZROUSD", cat: "crypto" },
-  { label: "CC", sym: "PHEMEX:CCUSDT", cat: "crypto" },
-  { label: "MSTR", sym: "NASDAQ:MSTR", cat: "equity" },
-  { label: "SMR", sym: "NYSE:SMR", cat: "equity" },
-  { label: "AAOI", sym: "NASDAQ:AAOI", cat: "equity" },
-  { label: "COIN", sym: "NASDAQ:COIN", cat: "equity" },
-  { label: "MARA", sym: "NASDAQ:MARA", cat: "equity" },
-  { label: "RIOT", sym: "NASDAQ:RIOT", cat: "equity" },
-  { label: "SPY", sym: "AMEX:SPY", cat: "index" },
-  { label: "QQQ", sym: "NASDAQ:QQQ", cat: "index" },
-  { label: "NVDA", sym: "NASDAQ:NVDA", cat: "equity" },
-  { label: "TSLA", sym: "NASDAQ:TSLA", cat: "equity" },
-]
 
 // ─── MULTICHART COMPONENT ───────────────────────────────────────────────────
 export default function MultiChart() {

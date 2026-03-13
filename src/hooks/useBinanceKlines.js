@@ -75,22 +75,24 @@ export async function fetchBinancePrice(symbol) {
 
 /**
  * Fetch 24h ticker for multiple symbols in one call.
+ * Uses the symbols query parameter to avoid fetching all 2000+ pairs.
  */
 export async function fetchBinanceTickers(symbols) {
+  if (!symbols || symbols.length === 0) return {}
   try {
-    const res = await fetch("https://api.binance.com/api/v3/ticker/24hr")
+    const encoded = encodeURIComponent(JSON.stringify(symbols))
+    const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encoded}`)
     if (!res.ok) return {}
     const data = await res.json()
     const map = {}
-    data.forEach(t => {
-      if (symbols.includes(t.symbol)) {
-        map[t.symbol] = {
-          price: parseFloat(t.lastPrice),
-          change: parseFloat(t.priceChangePercent),
-          high: parseFloat(t.highPrice),
-          low: parseFloat(t.lowPrice),
-          volume: parseFloat(t.quoteVolume),
-        }
+    const arr = Array.isArray(data) ? data : [data]
+    arr.forEach(t => {
+      map[t.symbol] = {
+        price: parseFloat(t.lastPrice),
+        change: parseFloat(t.priceChangePercent),
+        high: parseFloat(t.highPrice),
+        low: parseFloat(t.lowPrice),
+        volume: parseFloat(t.quoteVolume),
       }
     })
     return map

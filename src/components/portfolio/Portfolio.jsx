@@ -842,8 +842,8 @@ export default function Portfolio({ onNavigateToChart }) {
 
   const chartData = useMemo(() => {
     if (snapshotData.length === 0) return [];
-    // Group snapshots into 4-hour OHLC candles
-    const BUCKET_SEC = 4 * 3600; // 4 hours in seconds
+    // Group snapshots into 1-hour OHLC candles
+    const BUCKET_SEC = 3600; // 1 hour in seconds
     const byBucket = {};
     snapshotData.forEach(s => {
       const dt = new Date(s.date);
@@ -860,7 +860,23 @@ export default function Portfolio({ onNavigateToChart }) {
     });
     // Filter to chartRange window
     const cutoff = Math.floor((Date.now() - chartRange * 24 * 60 * 60 * 1000) / 1000);
-    return Object.values(byBucket).filter(c => c.time >= cutoff).sort((a, b) => a.time - b.time);
+    const sparse = Object.values(byBucket).filter(c => c.time >= cutoff).sort((a, b) => a.time - b.time);
+    if (sparse.length === 0) return [];
+
+    // Fill gaps so candles are contiguous — open of each hour = close of previous
+    const filled = [sparse[0]];
+    for (let i = 1; i < sparse.length; i++) {
+      const prev = filled[filled.length - 1];
+      let t = prev.time + BUCKET_SEC;
+      // Fill any missing hours with flat candles carrying forward the last close
+      while (t < sparse[i].time) {
+        filled.push({ time: t, open: prev.close, high: prev.close, low: prev.close, close: prev.close, costBasis: prev.costBasis });
+        t += BUCKET_SEC;
+      }
+      // For the real candle, set its open to previous close so bars touch
+      filled.push({ ...sparse[i], open: prev.close });
+    }
+    return filled;
   }, [snapshotData, chartRange]);
 
   const summary = useMemo(() => {
