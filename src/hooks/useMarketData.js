@@ -165,6 +165,9 @@ function resolveExchange(symbol, type, exchange) {
   // Yahoo overrides — commodities, futures, non-standard tickers (XCUUSD → HG=F, etc.)
   if (YAHOO_OVERRIDES[key]) return { exchange: "yahoo", sym: YAHOO_OVERRIDES[key], key }
 
+  // Yahoo Finance futures notation (HG=F, CL=F, etc.) — pass through directly
+  if (/^[A-Z]{1,4}=F$/.test(key)) return { exchange: "yahoo", sym: key, key }
+
   // Equities → Yahoo Finance
   if (/^[A-Z]{1,5}$/.test(key)) return { exchange: "yahoo", sym: key, key }
 
