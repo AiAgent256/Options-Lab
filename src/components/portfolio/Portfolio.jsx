@@ -79,7 +79,7 @@ const S = {
 const pnlColor = (v) => v >= 0 ? COLORS.positive.text : COLORS.negative.text;
 const blurStyle = { filter: "blur(8px)", userSelect: "none", transition: "filter 0.2s" };
 
-// ─── PORTFOLIO CANDLE CHART (lightweight-charts) ────────────────────────────
+// ─── PORTFOLIO CANDLE CHART (lightweight-charts — TradingView style) ────────
 function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -92,30 +92,31 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
 
     const chart = createChart(el, {
       layout: {
-        background: { color: COLORS.bg.elevated },
-        textColor: COLORS.text.dim,
-        fontFamily: FONTS.mono,
+        background: { color: "#080a0f" },
+        textColor: "#4a5060",
+        fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: COLORS.border.primary },
-        horzLines: { color: COLORS.border.primary },
+        vertLines: { visible: false },
+        horzLines: { color: "rgba(255,255,255,0.06)", style: 1 },
       },
       crosshair: {
         mode: 0,
-        vertLine: { color: "rgba(59,130,246,0.3)", width: 1, style: 2, labelBackgroundColor: COLORS.bg.elevated },
-        horzLine: { color: "rgba(59,130,246,0.3)", width: 1, style: 2, labelBackgroundColor: COLORS.bg.elevated },
+        vertLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#1a1d28" },
+        horzLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#1a1d28" },
       },
       timeScale: {
-        borderColor: COLORS.border.primary,
+        borderColor: "rgba(255,255,255,0.04)",
         timeVisible: true,
         secondsVisible: false,
         fixLeftEdge: true,
         fixRightEdge: true,
+        barSpacing: 8,
       },
       rightPriceScale: {
-        borderColor: COLORS.border.primary,
-        scaleMargins: { top: 0.05, bottom: 0.05 },
+        borderColor: "rgba(255,255,255,0.04)",
+        scaleMargins: { top: 0.08, bottom: 0.08 },
         visible: !privacyMode,
       },
       handleScroll: true,
@@ -123,18 +124,19 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
     });
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderUpColor: "#22c55e",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#22c55e80",
-      wickDownColor: "#ef444480",
+      upColor: "#26a69a",
+      downColor: "#ef5350",
+      borderUpColor: "#26a69a",
+      borderDownColor: "#ef5350",
+      wickUpColor: "#26a69a",
+      wickDownColor: "#ef5350",
+      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
     });
 
     const costLine = chart.addLineSeries({
-      color: COLORS.text.dim,
+      color: "rgba(255,255,255,0.15)",
       lineWidth: 1,
-      lineStyle: 2, // dashed
+      lineStyle: 2,
       crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -153,7 +155,6 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null; lineRef.current = null; };
   }, [privacyMode]);
 
-  // Update data when it changes
   useEffect(() => {
     if (!candleRef.current || !data?.length) return;
     candleRef.current.setData(data);
@@ -163,7 +164,7 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
     if (chartRef.current) chartRef.current.timeScale().fitContent();
   }, [data, costBasisData]);
 
-  return <div ref={containerRef} style={{ height: 280, width: "100%" }} />;
+  return <div ref={containerRef} style={{ height: 320, width: "100%", background: "#080a0f", borderRadius: 6 }} />;
 }
 
 function ChartTooltip({ active, payload, label }) {
