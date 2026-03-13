@@ -20,7 +20,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 // ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
 // Canonical source: src/utils/symbols.js — keep in sync when adding symbols.
-import { COINBASE_PRODUCTS as COINBASE_MAP } from "../../src/utils/symbols.js"
+import { COINBASE_PRODUCTS as COINBASE_MAP, YAHOO_OVERRIDES } from "../../src/utils/symbols.js"
 
 // ─── PRICE FETCHERS (server-side, no proxy needed) ──────────────────────────
 
@@ -87,6 +87,13 @@ export default async function handler(req, res) {
         const cbSym = COINBASE_MAP[sym] || (h.type !== "equity" ? `${sym}-USD` : null)
         if (cbSym) {
           const p = await fetchCoinbasePrice(cbSym)
+          if (p) { prices[sym] = p; return }
+        }
+
+        // Commodities/futures → Yahoo (XCUUSD → HG=F, etc.)
+        const yahooOverride = YAHOO_OVERRIDES[sym]
+        if (yahooOverride) {
+          const p = await fetchYahooPrice(yahooOverride)
           if (p) { prices[sym] = p; return }
         }
 

@@ -30,6 +30,19 @@ export const PHEMEX_PRODUCTS = {
   CC: "CCUSDT", PEPE: "1000PEPEUSDT", ZRO: "ZROUSDT",
 }
 
+// Yahoo Finance overrides — commodities, futures, and non-standard tickers
+// Maps normalized symbol → Yahoo Finance ticker
+export const YAHOO_OVERRIDES = {
+  // Copper
+  XCU: "HG=F", XCUUSD: "HG=F", COPPER: "HG=F",
+  // Gold
+  XAU: "GC=F", XAUUSD: "GC=F", GOLD: "GC=F",
+  // Silver
+  XAG: "SI=F", XAGUSD: "SI=F", SILVER: "SI=F",
+  // Oil & Gas
+  OIL: "CL=F", NATGAS: "NG=F",
+}
+
 // CoinGecko coin IDs (free API fallback)
 export const COINGECKO_IDS = {
   BTC: "bitcoin", ETH: "ethereum", SOL: "solana", DOGE: "dogecoin",

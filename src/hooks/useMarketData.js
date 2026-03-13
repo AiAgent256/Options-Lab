@@ -29,7 +29,7 @@ const SYMBOL_ALIASES = {
 // ─── SYMBOL MAPS (from shared canonical source) ────────────────────────────
 // If a symbol is NOT here, we still try the standard format,
 // then fall back to CoinGecko (crypto) or Yahoo Finance (equities) if the exchange 404s.
-import { COINBASE_PRODUCTS as COINBASE_MAP, PHEMEX_PRODUCTS as PHEMEX_MAP, COINGECKO_IDS as COINGECKO_ID_MAP } from "../utils/symbols"
+import { COINBASE_PRODUCTS as COINBASE_MAP, PHEMEX_PRODUCTS as PHEMEX_MAP, COINGECKO_IDS as COINGECKO_ID_MAP, YAHOO_OVERRIDES } from "../utils/symbols"
 
 function coingeckoId(key) {
   return COINGECKO_ID_MAP[key] || key.toLowerCase()
@@ -161,6 +161,9 @@ function resolveExchange(symbol, type, exchange) {
   if (type !== "equity" && COINGECKO_ID_MAP[key]) return { exchange: "coingecko", sym: coingeckoId(key), key }
   if (isSpot && COINGECKO_ID_MAP[key]) return { exchange: "coingecko", sym: coingeckoId(key), key }
   if (isSpot) return { exchange: "coinbase", sym: `${key}-USD`, key }
+
+  // Yahoo overrides — commodities, futures, non-standard tickers (XCUUSD → HG=F, etc.)
+  if (YAHOO_OVERRIDES[key]) return { exchange: "yahoo", sym: YAHOO_OVERRIDES[key], key }
 
   // Equities → Yahoo Finance
   if (/^[A-Z]{1,5}$/.test(key)) return { exchange: "yahoo", sym: key, key }
