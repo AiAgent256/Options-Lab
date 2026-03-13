@@ -1,30 +1,30 @@
 {
-  "builds": [
-    { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } },
-    { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
-    { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
-    { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
-    { "src": "api/yahoo/[...path].js", "use": "@vercel/node" },
-    { "src": "api/pokemon/[...path].js", "use": "@vercel/node" },
-    { "src": "api/yugioh/[...path].js", "use": "@vercel/node" },
-    { "src": "api/pricecharting/[...path].js", "use": "@vercel/node" },
-    { "src": "api/news/feed.js", "use": "@vercel/node" },
-    { "src": "api/cron/snapshot.js", "use": "@vercel/node" }
-  ]
-  "crons": [
-    { "path": "/api/cron/snapshot", "schedule": "0 0 * * *" }
-  ],
-  "routes": [
-    { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
-    { "src": "/api/coingecko/(.*)", "dest": "/api/coingecko/[...path].js" },
-    { "src": "/api/phemex/(.*)", "dest": "/api/phemex/[...path].js" },
-    { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
-    { "src": "/api/pokemon/(.*)", "dest": "/api/pokemon/[...path].js" },
-    { "src": "/api/yugioh/(.*)", "dest": "/api/yugioh/[...path].js" },
-    { "src": "/api/pricecharting/(.*)", "dest": "/api/pricecharting/[...path].js" },
-    { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
-    { "src": "/api/cron/snapshot", "dest": "/api/cron/snapshot.js" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
-  ]
+    "builds": [
+          { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } },
+          { "src": "api/coinbase/[...path].js", "use": "@vercel/node" },
+          { "src": "api/coingecko/[...path].js", "use": "@vercel/node" },
+          { "src": "api/phemex/[...path].js", "use": "@vercel/node" },
+          { "src": "api/yahoo/[...path].js", "use": "@vercel/node" },
+          { "src": "api/pokemon/[...path].js", "use": "@vercel/node" },
+          { "src": "api/yugioh/[...path].js", "use": "@vercel/node" },
+          { "src": "api/pricecharting/[...path].js", "use": "@vercel/node" },
+          { "src": "api/news/feed.js", "use": "@vercel/node" },
+          { "src": "api/cron/snapshot.js", "use": "@vercel/node" }
+    ],
+    "crons": [
+          { "path": "/api/cron/snapshot", "schedule": "0 0 * * *" }
+    ],
+    "routes": [
+          { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
+          { "src": "/api/coingecko/(.*)", "dest": "/api/coingecko/[...path].js" },
+          { "src": "/api/phemex/(.*)", "dest": "/api/phemex/[...path].js" },
+          { "src": "/api/yahoo/(.*)", "dest": "/api/yahoo/[...path].js" },
+          { "src": "/api/pokemon/(.*)", "dest": "/api/pokemon/[...path].js" },
+          { "src": "/api/yugioh/(.*)", "dest": "/api/yugioh/[...path].js" },
+          { "src": "/api/pricecharting/(.*)", "dest": "/api/pricecharting/[...path].js" },
+          { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
+          { "src": "/api/cron/snapshot", "dest": "/api/cron/snapshot.js" },
+          { "handle": "filesystem" },
+          { "src": "/(.*)", "dest": "/index.html" }
+    ]
 }
