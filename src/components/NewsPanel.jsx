@@ -90,10 +90,6 @@ export default function NewsPanel() {
         .news-filter { padding: 3px 10px; font-size: 9px; font-family: 'JetBrains Mono', monospace; cursor: pointer; border-radius: 2px; border: 1px solid rgba(255,255,255,0.04); background: transparent; color: #3a4050; letter-spacing: 0.04em; font-weight: 500; transition: all 0.12s; }
         .news-filter:hover { color: #6a7080; border-color: rgba(255,255,255,0.08); }
         .news-filter-active { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.2); color: #3b82f6; }
-        .news-scroll::-webkit-scrollbar { width: 4px; }
-        .news-scroll::-webkit-scrollbar-track { background: transparent; }
-        .news-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
-        .news-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
       `}</style>
 
       {/* ─── Header ─── */}

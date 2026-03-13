@@ -102,7 +102,7 @@ export default function PokemonMarket() {
             Track prices, trends, and market data for Pokemon TCG cards
           </div>
         </div>
-        <button onClick={refreshPrices} disabled={loading} style={S.btnPrimary}>
+        <button onClick={refreshPrices} disabled={loading} style={S.btn}>
           {loading ? "Refreshing..." : "Refresh Prices"}
         </button>
       </div>
@@ -184,7 +184,7 @@ export default function PokemonMarket() {
                         </div>
                         {card.rarity && (
                           <div style={{ marginTop: 3 }}>
-                            <span style={S.badge(COLORS.accent.blue)}>{card.rarity}</span>
+                            <span style={S.badge(COLORS.text.secondary)}>{card.rarity}</span>
                           </div>
                         )}
                         {bp?.market && (
@@ -265,7 +265,7 @@ export default function PokemonMarket() {
                         {p?.market ? fmtDollar(p.market) : "—"}
                       </td>
                       <td style={{ ...S.td, textAlign: "right" }}>
-                        {p?.variant && <span style={S.badge(COLORS.accent.blue)}>{p.variant}</span>}
+                        {p?.variant && <span style={S.badge(COLORS.text.secondary)}>{p.variant}</span>}
                       </td>
                       <td style={{ ...S.td, textAlign: "center", color: changes.pct7d != null ? pnlColor(changes.pct7d) : COLORS.text.dim }}>
                         {changes.pct7d != null ? fmtPnlPct(changes.pct7d) : "—"}
@@ -433,7 +433,7 @@ export default function PokemonMarket() {
                     </div>
                     {card.rarity && (
                       <div style={{ marginTop: 3 }}>
-                        <span style={S.badge(COLORS.accent.blue)}>{card.rarity}</span>
+                        <span style={S.badge(COLORS.text.secondary)}>{card.rarity}</span>
                       </div>
                     )}
                   </div>
@@ -461,15 +461,8 @@ export default function PokemonMarket() {
 
       {/* ── EMPTY STATE ── */}
       {watchlist.length === 0 && !searchResults && (
-        <div style={{ ...S.card, padding: 40, textAlign: "center" }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.text.primary, fontFamily: FONTS.ui, marginBottom: 8 }}>
-            Start Tracking Pokemon Cards
-          </div>
-          <div style={{ fontSize: 11, color: COLORS.text.dim, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
-            Search for any Pokemon card above to add it to your watchlist.
-            Prices update from TCGPlayer every 5 minutes, and price history
-            is recorded every 2 hours for charts and trend analysis.
-          </div>
+        <div style={{ fontSize: 10, color: COLORS.text.dim }}>
+          Search for cards above to begin tracking.
         </div>
       )}
     </div>

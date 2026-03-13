@@ -6,58 +6,48 @@
  */
 
 export const COLORS = {
-  // Backgrounds
   bg: {
-    primary: "#0a0c10",
-    secondary: "#0d1017",
-    elevated: "#121620",
-    input: "#0a0c10",
+    primary: "#080a10",
+    secondary: "#0c0e16",
+    elevated: "#10131b",
+    input: "#0a0c12",
   },
-
-  // Borders
   border: {
-    primary: "#1a1e2e",
-    secondary: "#222838",
-    subtle: "#1a1e2e60",
+    primary: "#161a26",
+    secondary: "#1c2030",
+    subtle: "#161a2660",
+    accent: "#2a3048",
   },
-
-  // Text
   text: {
-    primary: "#e2e6f0",
-    secondary: "#b0b8c8",
-    muted: "#6a7488",
-    dim: "#4a5268",
-    faint: "#3a4258",
-    ghost: "#2a3248",
+    primary: "#d8dce6",
+    secondary: "#9098a8",
+    muted: "#5c6478",
+    dim: "#3e4658",
+    faint: "#2c3444",
+    ghost: "#1e2636",
   },
-
-  // Accents — ONE accent color (blue)
   accent: {
     blue: "#3b82f6",
-    blueBg: "#3b82f618",
-    blueBorder: "#3b82f640",
-    blueHover: "#3b82f620",
+    blueBg: "#3b82f614",
+    blueBorder: "#3b82f630",
+    blueHover: "#3b82f61a",
   },
-
-  // Semantic — red/green for P&L only
   positive: {
     text: "#22c55e",
-    bg: "#22c55e15",
-    border: "#22c55e40",
+    bg: "#22c55e10",
+    border: "#22c55e30",
   },
   negative: {
     text: "#ef4444",
-    bg: "#ef444420",
-    border: "#ef444430",
+    bg: "#ef444414",
+    border: "#ef444425",
   },
-
-  // Chart palette for multi-series
   chartPalette: ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"],
 };
 
 export const FONTS = {
-  mono: "'JetBrains Mono', monospace",
-  ui: "'DM Sans', sans-serif",
+  mono: "'JetBrains Mono', 'SF Mono', monospace",
+  ui: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
 };
 
 /**

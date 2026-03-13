@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { blackScholes, impliedVol } from "../engine/blackScholes";
 import { useNumInput, useOptNumInput } from "../hooks/useNumInput";
 import { fmt, fmtPct, fmtDollar, fmtPnl, fmtPnlPct } from "../utils/format";
-import { STRATEGY_PRESETS as PRESETS, COLORS } from "../utils/constants";
+import { STRATEGY_PRESETS as PRESETS, COLORS, FONTS } from "../utils/constants";
 import NumInput from "./common/NumInput";
 
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
@@ -1490,48 +1490,45 @@ ${rollOptCharts}
       rollIntoStrike, optPeakPrice, optPeakDay, optFinalPrice, optRollSlippage]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0c10", color: "#c8ccd4", fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace" }}>
+    <div style={{ minHeight: "100vh", background: COLORS.bg.primary, color: COLORS.text.secondary, fontFamily: FONTS.mono }}>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
         input[type="number"], input[type="date"], input[type="text"], select {
-          background: #12151c; border: 1px solid #1e2330; color: #e0e4ec;
+          background: ${COLORS.bg.elevated}; border: 1px solid ${COLORS.border.secondary}; color: ${COLORS.text.primary};
           padding: 8px 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;
           font-size: 13px; width: 100%; outline: none; transition: border-color 0.2s;
         }
-        input:focus, select:focus { border-color: #3b82f6; }
-        input::placeholder { color: #3a4050; }
+        input:focus, select:focus { border-color: ${COLORS.accent.blue}; }
+        input::placeholder { color: ${COLORS.text.faint}; }
         input::-webkit-inner-spin-button { opacity: 0.3; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0a0c10; }
-        ::-webkit-scrollbar-thumb { background: #1e2330; border-radius: 3px; }
-        .green { color: #22c55e; } .red { color: #ef4444; } .blue { color: #3b82f6; }
-        .tab-btn { padding: 8px 14px; background: transparent; border: none; color: #5a6070; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.8px; }
-        .tab-btn:hover { color: #8890a0; }
-        .tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; }
-        .card { background: #0f1118; border: 1px solid #1a1e2e; border-radius: 6px; padding: 20px; }
-        .metric-box { background: #121620; border: 1px solid #1a1e2e; border-radius: 6px; padding: 12px 16px; }
-        .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #4a5060; margin-bottom: 4px; }
-        .value { font-size: 18px; font-weight: 600; color: #e0e4ec; }
+        .green { color: ${COLORS.positive.text}; } .red { color: ${COLORS.negative.text}; } .blue { color: ${COLORS.accent.blue}; }
+        .tab-btn { padding: 8px 14px; background: transparent; border: none; color: ${COLORS.text.muted}; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.8px; }
+        .tab-btn:hover { color: ${COLORS.text.secondary}; }
+        .tab-btn.active { color: ${COLORS.accent.blue}; border-bottom-color: ${COLORS.accent.blue}; }
+        .card { background: ${COLORS.bg.elevated}; border: 1px solid ${COLORS.border.primary}; border-radius: 6px; padding: 20px; }
+        .metric-box { background: ${COLORS.bg.elevated}; border: 1px solid ${COLORS.border.primary}; border-radius: 6px; padding: 12px 16px; }
+        .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: ${COLORS.text.dim}; margin-bottom: 4px; }
+        .value { font-size: 18px; font-weight: 600; color: ${COLORS.text.primary}; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th { text-align: right; padding: 8px 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #4a5060; border-bottom: 1px solid #1a1d28; font-weight: 500; position: sticky; top: 0; background: #0f1118; }
+        th { text-align: right; padding: 8px 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: ${COLORS.text.dim}; border-bottom: 1px solid ${COLORS.border.primary}; font-weight: 500; position: sticky; top: 0; background: ${COLORS.bg.secondary}; }
         th:first-child { text-align: left; }
-        td { text-align: right; padding: 6px 12px; border-bottom: 1px solid #111320; font-variant-numeric: tabular-nums; }
+        td { text-align: right; padding: 6px 12px; border-bottom: 1px solid ${COLORS.border.primary}; font-variant-numeric: tabular-nums; }
         td:first-child { text-align: left; }
-        tr:hover td { background: #12151c; }
+        tr:hover td { background: ${COLORS.bg.elevated}; }
         .input-group { display: flex; flex-direction: column; gap: 4px; }
-        .input-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #5a6070; }
-        .scenario-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #5a6070; font-weight: 600; }
-        .divider { flex: 1; height: 1px; background: #1a1d28; }
-        .toggle-btn { background: #12151c; border: 1px solid #1e2330; color: #5a6070; padding: 6px 14px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.2s; }
-        .toggle-btn:hover { border-color: #3b82f6; color: #8890a0; }
-        .toggle-btn.active { border-color: #3b82f6; color: #3b82f6; background: #3b82f610; }
-        .btn { background: #1a1d28; border: 1px solid #252a38; color: #8890a0; padding: 6px 14px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; }
-        .btn:hover { background: #252a38; color: #e0e4ec; }
-        .btn-primary { background: #3b82f620; border-color: #3b82f640; color: #3b82f6; }
-        .btn-primary:hover { background: #3b82f630; }
-        .btn-danger { background: #ef444410; border-color: #ef444430; color: #ef4444; padding: 4px 8px; font-size: 10px; }
-        .btn-danger:hover { background: #ef444420; }
-        .override-input { border-color: #3b82f640 !important; }
+        .input-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: ${COLORS.text.muted}; }
+        .scenario-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: ${COLORS.text.muted}; font-weight: 600; }
+        .divider { flex: 1; height: 1px; background: ${COLORS.border.primary}; }
+        .toggle-btn { background: ${COLORS.bg.elevated}; border: 1px solid ${COLORS.border.secondary}; color: ${COLORS.text.muted}; padding: 6px 14px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+        .toggle-btn:hover { border-color: ${COLORS.accent.blue}; color: ${COLORS.text.secondary}; }
+        .toggle-btn.active { border-color: ${COLORS.accent.blue}; color: ${COLORS.accent.blue}; background: ${COLORS.accent.blueBg}; }
+        .btn { background: transparent; border: 1px solid ${COLORS.border.secondary}; color: ${COLORS.text.secondary}; padding: 6px 14px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+        .btn:hover { background: ${COLORS.bg.elevated}; color: ${COLORS.text.primary}; }
+        .btn-primary { background: ${COLORS.accent.blueBg}; border-color: ${COLORS.accent.blueBorder}; color: ${COLORS.accent.blue}; }
+        .btn-primary:hover { background: ${COLORS.accent.blueHover}; }
+        .btn-danger { background: ${COLORS.negative.bg}; border-color: ${COLORS.negative.border}; color: ${COLORS.negative.text}; padding: 4px 8px; font-size: 10px; }
+        .btn-danger:hover { background: ${COLORS.negative.bg}; }
+        .override-input { border-color: ${COLORS.accent.blueBorder} !important; }
       `}</style>
 
       {/* Header */}

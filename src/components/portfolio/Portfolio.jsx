@@ -14,11 +14,6 @@ const ASSET_CLASS_LABELS = {
   cash: "Cash & Margin",
 };
 
-const ASSET_CLASS_COLORS = {
-  market: COLORS.accent.blue,
-  collectible: COLORS.accent.blue,
-  cash: COLORS.accent.blue,
-};
 
 const DEFAULT_HOLDINGS = [];
 
@@ -35,19 +30,19 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) 
 
     const chart = createChart(el, {
       layout: {
-        background: { color: "#080a0f" },
-        textColor: "#4a5060",
+        background: { color: "#080a10" },
+        textColor: "#3e4658",
         fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
         fontSize: 10,
       },
       grid: {
         vertLines: { visible: false },
-        horzLines: { color: "rgba(255,255,255,0.06)", style: 1 },
+        horzLines: { color: "rgba(22,26,38,0.5)", style: 1 },
       },
       crosshair: {
         mode: 0,
-        vertLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#1a1d28" },
-        horzLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#1a1d28" },
+        vertLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#10131b" },
+        horzLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#10131b" },
       },
       timeScale: {
         borderColor: "rgba(255,255,255,0.04)",
@@ -112,7 +107,7 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) 
     }
   }, [data, costBasisData, chartRange]);
 
-  return <div ref={containerRef} style={{ height: 320, width: "100%", background: "#080a0f", borderRadius: 6 }} />;
+  return <div ref={containerRef} style={{ height: 320, width: "100%", background: "#080a10", borderRadius: 6 }} />;
 }
 
 function ChartTooltip({ active, payload, label }) {
@@ -520,9 +515,9 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
             <button key={key} onClick={() => setAssetClass(key)} style={{
               ...S.btn, flex: 1, padding: "8px 12px", textAlign: "center",
               ...(assetClass === key ? {
-                background: ASSET_CLASS_COLORS[key] + "22",
-                borderColor: ASSET_CLASS_COLORS[key],
-                color: ASSET_CLASS_COLORS[key],
+                background: COLORS.accent.blueBg,
+                borderColor: COLORS.accent.blueBorder,
+                color: COLORS.accent.blue,
               } : {}),
             }}>{lbl}</button>
           ))}
@@ -1022,7 +1017,7 @@ export default function Portfolio({ onNavigateToChart }) {
           { label: "Unrealized P&L", value: B(`${fmtDollar(summary.totalPnl)} (${fmtPnlPct(summary.totalPnlPct)})`), color: pnlColor(summary.totalPnl) },
           { label: "Realized P&L", value: B(fmtDollar(summary.realizedPnl)), color: pnlColor(summary.realizedPnl) },
         ].map((c, i) => (
-          <div key={i} style={S.summaryCard}>
+          <div key={i} style={{ ...S.summaryCard, ...(i === 0 ? { borderLeft: `3px solid ${COLORS.accent.blue}` } : {}) }}>
             <div style={S.cardLabel}>{c.label}</div>
             <div style={{ ...S.cardValue, color: c.color }}>{c.value}</div>
           </div>
@@ -1061,30 +1056,30 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* Market Assets */}
       <div style={{ marginBottom: 24 }}>
         <div style={S.sectionTitle}>
-          <span style={{ color: ASSET_CLASS_COLORS.market }}>Market Assets</span><div style={S.divider} />
+          <span>Market Assets</span><div style={S.divider} />
           <span style={{ fontSize: 10, color: COLORS.text.muted }}>{B(fmtDollar(summary.marketValue))}</span>
         </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h %", "24h $", "Value", "P&L", "P&L %", ""].map((c, i) => <th key={c} style={{ ...S.th, ...(i > 0 && i < 10 ? { textAlign: "right" } : {}) }}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Asset", "Qty", "Lev", "Cost Basis", "Price", "24h %", "24h $", "Value", "P&L", "P&L %", ""].map((c, i) => <th key={c} style={i > 0 && i < 10 ? S.thRight : S.th}>{c}</th>)}</tr></thead>
             <tbody>
               {summary.enrichedMarket.length === 0 ? (
                 <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No market assets</td></tr>
               ) : summary.enrichedMarket.map(h => (
                 <tr key={h.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}<span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{h.symbol}</span></td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(h.qty)}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: (h.leverage || 1) > 1 ? COLORS.accent.blue : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(h.costBasis))}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnl24h), fontWeight: 500 }}>{B(h.pnl24h ? fmtPnl(h.pnl24h) : "—")}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(h.currentPrice > 0 ? fmtDollar(h.marketValue) : "—")}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnl), fontWeight: 500 }}>{B(h.currentPrice > 0 ? fmtPnl(h.pnl) : "—")}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnlPct) }}>{h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}</td>
+                  <td style={S.tdRight}>{B(h.qty)}</td>
+                  <td style={{ ...S.tdRight, color: (h.leverage || 1) > 1 ? undefined : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? <span style={S.badge(COLORS.accent.blue)}>{h.leverage}×</span> : "1×"}</td>
+                  <td style={S.tdRight}>{B(fmtPrice(h.costBasis))}</td>
+                  <td style={{ ...S.tdRight, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(h.pnl24h), fontWeight: 500 }}>{B(h.pnl24h ? fmtPnl(h.pnl24h) : "—")}</td>
+                  <td style={S.tdRight}>{B(h.currentPrice > 0 ? fmtDollar(h.marketValue) : "—")}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(h.pnl), fontWeight: 500 }}>{B(h.currentPrice > 0 ? fmtPnl(h.pnl) : "—")}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(h.pnlPct) }}>{h.currentPrice > 0 ? fmtPnlPct(h.pnlPct) : "—"}</td>
                   <td style={{ ...S.td, whiteSpace: "nowrap" }}>
-                    <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Close</button>{" "}
-                    <button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button>
+                    <button style={S.btn} onClick={() => startCloseTrade(h)}>Close</button>{" "}
+                    <button style={S.btn} onClick={() => removeHolding(h.id)}>✕</button>
                   </td>
                 </tr>
               ))}
@@ -1092,12 +1087,12 @@ export default function Portfolio({ onNavigateToChart }) {
           </table>
           {summary.enrichedMarket.length > 0 && (
             <div style={S.subtotalRow}>
-              <span style={{ color: ASSET_CLASS_COLORS.market }}>
+              <span style={{ color: COLORS.text.secondary }}>
                 {summary.enrichedMarket.length} position{summary.enrichedMarket.length > 1 ? "s" : ""}
               </span>
               <div style={{ display: "flex", gap: 16 }}>
                 <span style={{ color: COLORS.text.dim }}>Cost: {B(fmtDollar(summary.marketCost))}</span>
-                <span style={{ color: ASSET_CLASS_COLORS.market }}>Value: {B(fmtDollar(summary.marketValue))}</span>
+                <span style={{ color: COLORS.text.primary }}>Value: {B(fmtDollar(summary.marketValue))}</span>
                 <span style={{ color: pnlColor(summary.marketPnl), fontWeight: 600 }}>{B(fmtPnl(summary.marketPnl))}</span>
               </div>
             </div>
@@ -1108,12 +1103,12 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* Collectibles */}
       <div style={{ marginBottom: 24 }}>
         <div style={S.sectionTitle}>
-          <span style={{ color: ASSET_CLASS_COLORS.collectible }}>Collectibles</span><div style={S.divider} />
+          <span>Collectibles</span><div style={S.divider} />
           <span style={{ fontSize: 10, color: COLORS.text.muted }}>{B(fmtDollar(summary.collectibleValue))}</span>
         </div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Item", "Qty", "Grade", "Paid", "Current Value", "Total Value", "P&L", "P&L %", "Updated", ""].map((c, i) => <th key={c} style={{ ...S.th, ...(i >= 1 && i <= 7 ? { textAlign: "right" } : {}) }}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Item", "Qty", "Grade", "Paid", "Current Value", "Total Value", "P&L", "P&L %", "Updated", ""].map((c, i) => <th key={c} style={i >= 1 && i <= 7 ? S.thRight : S.th}>{c}</th>)}</tr></thead>
             <tbody>
               {summary.enrichedCollectibles.length === 0 ? (
                 <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 20 }}>No collectibles yet. Click "+ Add Asset" to add Pokemon cards.</td></tr>
@@ -1122,25 +1117,25 @@ export default function Portfolio({ onNavigateToChart }) {
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary, maxWidth: 200 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {h.label || h.symbol}
-                      {h.cardGame === "pokemon" && <span style={{ ...S.badge(COLORS.accent.blue), fontSize: 8, padding: "1px 4px" }}>PKM</span>}
-                      {h.cardGame === "yugioh" && <span style={{ ...S.badge(COLORS.accent.blue), fontSize: 8, padding: "1px 4px" }}>YGO</span>}
+                      {h.cardGame === "pokemon" && <span style={{ ...S.badge(COLORS.text.secondary), fontSize: 8, padding: "1px 4px" }}>PKM</span>}
+                      {h.cardGame === "yugioh" && <span style={{ ...S.badge(COLORS.text.secondary), fontSize: 8, padding: "1px 4px" }}>YGO</span>}
                     </div>
                     {h.cardSet && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 2 }}>{h.cardSet}{h.variant && h.variant !== "normal" ? ` · ${h.variant}` : ""}</div>}
                     {h.notes && <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 1, fontStyle: "italic" }}>{h.notes}</div>}
                   </td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(h.qty)}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{h.grade ? <span style={S.badge(COLORS.accent.blue)}>{h.grade}</span> : "—"}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(h.costBasis))}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: COLORS.text.primary, cursor: "pointer", textDecoration: "underline dotted" }}
+                  <td style={S.tdRight}>{B(h.qty)}</td>
+                  <td style={S.tdRight}>{h.grade ? <span style={S.badge(COLORS.text.secondary)}>{h.grade}</span> : "—"}</td>
+                  <td style={S.tdRight}>{B(fmtPrice(h.costBasis))}</td>
+                  <td style={{ ...S.tdRight, color: COLORS.text.primary, cursor: "pointer", textDecoration: "underline dotted" }}
                     onClick={() => setUpdatingHolding(h)} title="Click to update">{B(fmtPrice(h.manualPrice || 0))}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtDollar(h.marketValue))}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnl), fontWeight: 500 }}>{B(fmtPnl(h.pnl))}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(h.pnlPct) }}>{fmtPnlPct(h.pnlPct)}</td>
+                  <td style={S.tdRight}>{B(fmtDollar(h.marketValue))}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(h.pnl), fontWeight: 500 }}>{B(fmtPnl(h.pnl))}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(h.pnlPct) }}>{fmtPnlPct(h.pnlPct)}</td>
                   <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim }}>{h.manualPriceDate || "—"}</td>
                   <td style={{ ...S.td, whiteSpace: "nowrap" }}>
                     <button style={S.btn} onClick={() => setEditingCard(h)} title="Edit card fields">Edit</button>{" "}
-                    <button style={S.btnSuccess} onClick={() => startCloseTrade(h)}>Sell</button>{" "}
-                    <button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button>
+                    <button style={S.btn} onClick={() => startCloseTrade(h)}>Sell</button>{" "}
+                    <button style={S.btn} onClick={() => removeHolding(h.id)}>✕</button>
                   </td>
                 </tr>
               ))}
@@ -1148,10 +1143,10 @@ export default function Portfolio({ onNavigateToChart }) {
           </table>
           {summary.enrichedCollectibles.length > 0 && (
             <div style={S.subtotalRow}>
-              <span style={{ color: ASSET_CLASS_COLORS.collectible }}>{summary.enrichedCollectibles.length} item{summary.enrichedCollectibles.length > 1 ? "s" : ""}</span>
+              <span style={{ color: COLORS.text.secondary }}>{summary.enrichedCollectibles.length} item{summary.enrichedCollectibles.length > 1 ? "s" : ""}</span>
               <div style={{ display: "flex", gap: 16 }}>
                 <span style={{ color: COLORS.text.dim }}>Cost: {B(fmtDollar(summary.collectibleCost))}</span>
-                <span style={{ color: ASSET_CLASS_COLORS.collectible }}>Value: {B(fmtDollar(summary.collectibleValue))}</span>
+                <span style={{ color: COLORS.text.primary }}>Value: {B(fmtDollar(summary.collectibleValue))}</span>
                 <span style={{ color: pnlColor(summary.collectibleValue - summary.collectibleCost), fontWeight: 600 }}>{B(fmtPnl(summary.collectibleValue - summary.collectibleCost))}</span>
               </div>
             </div>
@@ -1162,7 +1157,7 @@ export default function Portfolio({ onNavigateToChart }) {
       {/* Cash */}
       <div style={{ marginBottom: 24 }}>
         <div style={S.sectionTitle}>
-          <span style={{ color: ASSET_CLASS_COLORS.cash }}>Cash & Margin Accounts</span><div style={S.divider} />
+          <span>Cash & Margin Accounts</span><div style={S.divider} />
           <span style={{ fontSize: 10, color: COLORS.text.muted }}>{B(fmtDollar(summary.cashValue))}</span>
         </div>
         <div style={S.card}>
@@ -1176,14 +1171,14 @@ export default function Portfolio({ onNavigateToChart }) {
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}</td>
                   <td style={S.td}>
                     {privacyMode ? (
-                      <span style={{ ...blurStyle, color: ASSET_CLASS_COLORS.cash, fontWeight: 600, fontSize: 12 }}>{fmtDollar(h.qty)}</span>
+                      <span style={{ ...blurStyle, color: COLORS.text.primary, fontWeight: 600, fontSize: 12 }}>{fmtDollar(h.qty)}</span>
                     ) : (
-                      <input style={{ ...S.input, width: 140, border: "none", background: "transparent", color: ASSET_CLASS_COLORS.cash, fontWeight: 600, fontSize: 12, padding: 0 }}
+                      <input style={{ ...S.input, width: 140, border: "none", background: "transparent", color: COLORS.text.primary, fontWeight: 600, fontSize: 12, padding: 0 }}
                         type="number" step="any" value={h.qty} onChange={e => updateCashAmount(h.id, parseFloat(e.target.value) || 0)} />
                     )}
                   </td>
                   <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim }}>{h.notes || "—"}</td>
-                  <td style={S.td}><button style={S.btnDanger} onClick={() => removeHolding(h.id)}>✕</button></td>
+                  <td style={S.td}><button style={S.btn} onClick={() => removeHolding(h.id)}>✕</button></td>
                 </tr>
               ))}
             </tbody>
@@ -1196,23 +1191,23 @@ export default function Portfolio({ onNavigateToChart }) {
         <div style={S.sectionTitle}><span>Closed Trades</span><div style={S.divider} /></div>
         <div style={S.card}>
           <table style={S.table}>
-            <thead><tr>{["Asset", "Type", "Qty", "Entry", "Exit", "Open", "Close", "Realized P&L", "Return", "Notes", ""].map((c, i) => <th key={c} style={{ ...S.th, ...([2,3,4,7,8].includes(i) ? { textAlign: "right" } : {}) }}>{c}</th>)}</tr></thead>
+            <thead><tr>{["Asset", "Type", "Qty", "Entry", "Exit", "Open", "Close", "Realized P&L", "Return", "Notes", ""].map((c, i) => <th key={c} style={[2,3,4,7,8].includes(i) ? S.thRight : S.th}>{c}</th>)}</tr></thead>
             <tbody>
               {closedTrades.length === 0 ? (
                 <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: COLORS.text.dim, padding: 24 }}>No closed trades yet.</td></tr>
               ) : closedTrades.map(t => (
                 <tr key={t.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{t.label || t.symbol}</td>
-                  <td style={S.td}><span style={S.badge(COLORS.accent.blue)}>{(t.assetClass || "market").slice(0, 6)}</span></td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(t.qty)}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(t.costBasis))}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>{B(fmtPrice(t.exitPrice))}</td>
+                  <td style={S.td}><span style={S.badge(COLORS.text.secondary)}>{(t.assetClass || "market").slice(0, 6)}</span></td>
+                  <td style={S.tdRight}>{B(t.qty)}</td>
+                  <td style={S.tdRight}>{B(fmtPrice(t.costBasis))}</td>
+                  <td style={S.tdRight}>{B(fmtPrice(t.exitPrice))}</td>
                   <td style={{ ...S.td, fontSize: 10 }}>{t.openDate}</td>
                   <td style={{ ...S.td, fontSize: 10 }}>{t.closeDate}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(t.realizedPnl), fontWeight: 600 }}>{B(fmtPnl(t.realizedPnl))}</td>
-                  <td style={{ ...S.td, textAlign: "right", color: pnlColor(t.pnlPct) }}>{fmtPnlPct(t.pnlPct)}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(t.realizedPnl), fontWeight: 600 }}>{B(fmtPnl(t.realizedPnl))}</td>
+                  <td style={{ ...S.tdRight, color: pnlColor(t.pnlPct) }}>{fmtPnlPct(t.pnlPct)}</td>
                   <td style={{ ...S.td, fontSize: 9, color: COLORS.text.dim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{t.notes || "—"}</td>
-                  <td style={S.td}><button style={S.btnDanger} onClick={() => deleteClosedTrade(t.id)}>✕</button></td>
+                  <td style={S.td}><button style={S.btn} onClick={() => deleteClosedTrade(t.id)}>✕</button></td>
                 </tr>
               ))}
             </tbody>
