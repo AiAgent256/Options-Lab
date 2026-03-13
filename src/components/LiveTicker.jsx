@@ -32,17 +32,15 @@ function LiveTicker({ symbol, price, change, high, low, volume, connected }) {
     }}>
       {/* Connection indicator */}
       <div style={{
-        width: 6, height: 6, borderRadius: "50%",
+        width: 5, height: 5, borderRadius: "50%",
         background: connected ? "#22c55e" : "#ef4444",
-        boxShadow: connected ? "0 0 8px #22c55e60" : "0 0 8px #ef444460",
       }} />
 
       {/* Price */}
       <div style={{
         fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px",
-        color: flash === "up" ? "#22c55e" : flash === "down" ? "#ef4444" : "#e0e4ec",
+        color: flash === "up" ? "#22c55e" : flash === "down" ? "#ef4444" : "#e2e6f0",
         transition: "color 0.3s",
-        textShadow: flash ? `0 0 12px ${flash === "up" ? "#22c55e40" : "#ef444440"}` : "none",
       }}>
         {fmt(price)}
       </div>

@@ -234,7 +234,7 @@ function LiveChart({ symbol }) {
     }
   }
 
-  const statusColor = status === "live" ? "#22c55e" : status === "polling" ? "#3b82f6" : status === "delayed" ? "#f59e0b" : status === "error" ? "#ef4444" : "#6a7080"
+  const statusColor = status === "live" ? "#22c55e" : status === "polling" ? "#3b82f6" : status === "delayed" ? "#6a7488" : status === "error" ? "#ef4444" : "#6a7488"
   const statusLabel = status === "live" ? "LIVE" : status === "polling" ? "5s" : status === "delayed" ? "15s" : status === "error" ? "ERR" : "..."
   const changeColor = change24h >= 0 ? "#22c55e" : "#ef4444"
 
