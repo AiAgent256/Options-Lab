@@ -95,12 +95,12 @@ export default function PokemonMarket() {
       {/* ── HEADER ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
-          <h2 style={{ fontFamily: FONTS.ui, fontSize: 20, fontWeight: 700, color: COLORS.text.primary, margin: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.ui, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>
             Pokemon Market
-          </h2>
-          <p style={{ fontSize: 10, color: COLORS.text.dim, marginTop: 4, margin: 0 }}>
+          </div>
+          <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 4, fontFamily: FONTS.ui }}>
             Track prices, trends, and market data for Pokemon TCG cards
-          </p>
+          </div>
         </div>
         <button onClick={refreshPrices} disabled={loading} style={S.btnPrimary}>
           {loading ? "Refreshing..." : "Refresh Prices"}
@@ -111,7 +111,7 @@ export default function PokemonMarket() {
       <div style={S.summaryRow}>
         <div style={S.summaryCard}>
           <div style={S.cardLabel}>Watchlist Value</div>
-          <div style={{ ...S.cardValue, color: COLORS.accent.blue }}>{fmtDollar(summary.totalValue)}</div>
+          <div style={{ ...S.cardValue, color: COLORS.text.primary }}>{fmtDollar(summary.totalValue)}</div>
         </div>
         <div style={S.summaryCard}>
           <div style={S.cardLabel}>Cards Tracked</div>
@@ -188,7 +188,7 @@ export default function PokemonMarket() {
                           </div>
                         )}
                         {bp?.market && (
-                          <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.positive.text, marginTop: 4 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text.primary, marginTop: 4 }}>
                             {fmtDollar(bp.market)}
                           </div>
                         )}
@@ -317,7 +317,7 @@ export default function PokemonMarket() {
                     {selectedCard.setName} #{selectedCard.number}
                   </div>
                   {selectedPrice?.market && (
-                    <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.positive.text, marginTop: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text.primary, marginTop: 4 }}>
                       {fmtDollar(selectedPrice.market)}
                     </div>
                   )}
@@ -369,7 +369,7 @@ export default function PokemonMarket() {
                 {selectedPrice.low != null && (
                   <div>
                     <div style={S.cardLabel}>Low</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.negative.text }}>{fmtDollar(selectedPrice.low)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text.secondary }}>{fmtDollar(selectedPrice.low)}</div>
                   </div>
                 )}
                 {selectedPrice.mid != null && (
@@ -381,7 +381,7 @@ export default function PokemonMarket() {
                 {selectedPrice.market != null && (
                   <div>
                     <div style={S.cardLabel}>Market</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.positive.text }}>{fmtDollar(selectedPrice.market)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text.primary }}>{fmtDollar(selectedPrice.market)}</div>
                   </div>
                 )}
                 {selectedPrice.high != null && (
@@ -439,7 +439,7 @@ export default function PokemonMarket() {
                   </div>
                 </div>
                 {bp?.market && (
-                  <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.positive.text }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text.primary }}>
                     {fmtDollar(bp.market)}
                   </div>
                 )}
@@ -462,7 +462,6 @@ export default function PokemonMarket() {
       {/* ── EMPTY STATE ── */}
       {watchlist.length === 0 && !searchResults && (
         <div style={{ ...S.card, padding: 40, textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
           <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.text.primary, fontFamily: FONTS.ui, marginBottom: 8 }}>
             Start Tracking Pokemon Cards
           </div>
