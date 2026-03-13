@@ -674,7 +674,7 @@ export default function Portfolio({ onNavigateToChart }) {
   const [chartRange, setChartRange] = useState(90);
   const [snapshotData, setSnapshotData] = useState([]);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
-  const [privacyMode, setPrivacyMode] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(true);
   const importRef = useRef(null);
 
   // Privacy blur helper — wraps dollar amounts

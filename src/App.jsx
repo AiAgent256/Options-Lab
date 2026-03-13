@@ -6,7 +6,7 @@ import ErrorBoundary from './components/common/ErrorBoundary'
 import { COLORS, FONTS } from './utils/constants'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("charts")
+  const [activeTab, setActiveTab] = useState("portfolio")
 
   // Navigate from Portfolio → Charts tab
   const handleNavigateToChart = useCallback((tvSymbol) => {
