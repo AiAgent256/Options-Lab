@@ -10,9 +10,9 @@
     { "src": "api/pricecharting/[...path].js", "use": "@vercel/node" },
     { "src": "api/news/feed.js", "use": "@vercel/node" },
     { "src": "api/cron/snapshot.js", "use": "@vercel/node" }
-  ],
+  ]
   "crons": [
-    { "path": "/api/cron/snapshot", "schedule": "0 * * * *" }
+    { "path": "/api/cron/snapshot", "schedule": "0 0 * * *" }
   ],
   "routes": [
     { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
