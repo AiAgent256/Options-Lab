@@ -1123,7 +1123,7 @@ export default function OptionsSimulator({ livePrice = null, livePriceSymbol = n
   ];
 
   const OverrideBadge = () => (
-    <span style={{ fontSize: 8, color: "#f59e0b", background: "#f59e0b15", padding: "1px 5px", borderRadius: 3, marginLeft: 4, verticalAlign: "middle" }}>MKT</span>
+    <span style={{ fontSize: 8, color: "#3b82f6", background: "#3b82f615", padding: "1px 5px", borderRadius: 3, marginLeft: 4, verticalAlign: "middle" }}>MKT</span>
   );
 
   // ─── REPORT GENERATOR ──────────────────────────────────────────────────────
@@ -1504,12 +1504,12 @@ ${rollOptCharts}
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0a0c10; }
         ::-webkit-scrollbar-thumb { background: #1e2330; border-radius: 3px; }
-        .green { color: #22c55e; } .red { color: #ef4444; } .blue { color: #3b82f6; } .amber { color: #f59e0b; }
+        .green { color: #22c55e; } .red { color: #ef4444; } .blue { color: #3b82f6; }
         .tab-btn { padding: 8px 14px; background: transparent; border: none; color: #5a6070; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.8px; }
         .tab-btn:hover { color: #8890a0; }
         .tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; }
-        .card { background: #0f1118; border: 1px solid #1a1d28; border-radius: 10px; padding: 20px; }
-        .metric-box { background: #12151c; border: 1px solid #1a1d28; border-radius: 8px; padding: 12px 16px; }
+        .card { background: #0f1118; border: 1px solid #1a1e2e; border-radius: 6px; padding: 20px; }
+        .metric-box { background: #121620; border: 1px solid #1a1e2e; border-radius: 6px; padding: 12px 16px; }
         .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #4a5060; margin-bottom: 4px; }
         .value { font-size: 18px; font-weight: 600; color: #e0e4ec; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -1524,30 +1524,25 @@ ${rollOptCharts}
         .divider { flex: 1; height: 1px; background: #1a1d28; }
         .toggle-btn { background: #12151c; border: 1px solid #1e2330; color: #5a6070; padding: 6px 14px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.2s; }
         .toggle-btn:hover { border-color: #3b82f6; color: #8890a0; }
-        .toggle-btn.active { border-color: #f59e0b; color: #f59e0b; background: #f59e0b10; }
+        .toggle-btn.active { border-color: #3b82f6; color: #3b82f6; background: #3b82f610; }
         .btn { background: #1a1d28; border: 1px solid #252a38; color: #8890a0; padding: 6px 14px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; }
         .btn:hover { background: #252a38; color: #e0e4ec; }
         .btn-primary { background: #3b82f620; border-color: #3b82f640; color: #3b82f6; }
         .btn-primary:hover { background: #3b82f630; }
         .btn-danger { background: #ef444410; border-color: #ef444430; color: #ef4444; padding: 4px 8px; font-size: 10px; }
         .btn-danger:hover { background: #ef444420; }
-        .override-input { border-color: #f59e0b40 !important; }
+        .override-input { border-color: #3b82f640 !important; }
       `}</style>
 
       {/* Header */}
-      <div style={{ padding: "16px 28px 0", borderBottom: "1px solid #1a1d28" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+      <div style={{ padding: "0 28px", borderBottom: "1px solid #1a1e2e" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 12px #3b82f680" }} />
-            <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 18, fontWeight: 700, color: "#e0e4ec", letterSpacing: "-0.5px" }}>OPTIONS LAB</span>
-            <span style={{ fontSize: 10, color: "#3b82f6", background: "#3b82f615", padding: "2px 8px", borderRadius: 4, letterSpacing: "1px" }}>v0.5</span>
+            <span style={{ fontSize: 11, color: "#4a5268" }}>{optionType.toUpperCase()} · ${strikePrice.value} Strike · {expirationDate}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ fontSize: 11, color: "#4a5060" }}>{optionType.toUpperCase()} · ${strikePrice.value} Strike · {expirationDate}</div>
-            <button className="btn btn-primary" onClick={generateReport} style={{ padding: "6px 16px", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 13 }}>↓</span> Download Report
-            </button>
-          </div>
+          <button className="btn btn-primary" onClick={generateReport} style={{ padding: "6px 16px", fontSize: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            Download Report
+          </button>
         </div>
         <div style={{ display: "flex", gap: 0, overflowX: "auto" }}>
           {tabs.map(t => (
@@ -1593,7 +1588,7 @@ ${rollOptCharts}
             <NumInput label="Expected Drop %" input={expectedDrop} step="1" />
             <div className="input-group">
               <span className="input-label">Entry Date</span>
-              <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} style={entryDate ? { borderColor: "#f59e0b40" } : {}} />
+              <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} style={entryDate ? { borderColor: "#3b82f640" } : {}} />
             </div>
             <NumInput label="Investment $" input={investmentAmount} step="1000" min="100" />
             <NumInput label="IV Override %" input={ivOverride} step="1" placeholder="Auto" />
@@ -1638,7 +1633,7 @@ ${rollOptCharts}
                 { label: "IV %", input: mktIV, step: "0.5", ph: c.currentIV * 100 },
               ].map(g => (
                 <div key={g.label} className="input-group">
-                  <span className="input-label" style={{ color: g.input.value != null ? "#f59e0b" : undefined }}>{g.label}</span>
+                  <span className="input-label" style={{ color: g.input.value != null ? "#3b82f6" : undefined }}>{g.label}</span>
                   <input type="number" className={g.input.value != null ? "override-input" : ""} value={g.input.raw} onChange={g.input.onChange} step={g.step} placeholder={fmt(g.ph, 4)} />
                   <span style={{ fontSize: 9, color: "#3a4050" }}>BS: {fmt(g.ph, 4)}</span>
                 </div>
@@ -1655,7 +1650,7 @@ ${rollOptCharts}
                 { label: "Implied Volatility", value: fmtPct(c.currentIV), cls: "blue", sub: c.greekOverrides.iv ? "from market input" : "from market price", badge: c.greekOverrides.iv },
                 { label: "BS Fair Value", value: fmtDollar(c.bsCurrent.price), sub: `${c.bsCurrent.price > c.optPx ? "Under" : "Over"}valued by ${fmtDollar(Math.abs(c.bsCurrent.price - c.optPx))}`, subColor: c.bsCurrent.price > c.optPx ? "#22c55e" : "#ef4444" },
                 { label: "Time to Expiry", value: `${fmt(c.T, 2)} yrs`, sub: `${c.totalDays} days` },
-                { label: "Entry Date", value: c.daysToEntry > 0 ? `+${Math.round(c.daysToEntry)}d` : "Today", cls: "amber", sub: c.daysToEntry > 0 ? `${c.entryDateStr} · T at entry: ${fmt(c.T_entry, 2)}y` : "No entry date set" },
+                { label: "Entry Date", value: c.daysToEntry > 0 ? `+${Math.round(c.daysToEntry)}d` : "Today", cls: "blue", sub: c.daysToEntry > 0 ? `${c.entryDateStr} · T at entry: ${fmt(c.T_entry, 2)}y` : "No entry date set" },
                 { label: "Dropped Price", value: fmtDollar(c.droppedPrice), cls: "red", sub: `-${expectedDrop.value}% from $${stockPrice.value}` },
                 { label: "Option @ Entry", value: fmtDollar(c.entryOptionPrice), cls: "green", sub: `Entry IV: ${fmtPct(c.entryIV)} · T: ${fmt(c.T_entry, 2)}y` },
               ].map((m, i) => (
