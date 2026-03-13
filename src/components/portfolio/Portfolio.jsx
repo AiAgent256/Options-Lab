@@ -80,7 +80,7 @@ const pnlColor = (v) => v >= 0 ? COLORS.positive.text : COLORS.negative.text;
 const blurStyle = { filter: "blur(8px)", userSelect: "none", transition: "filter 0.2s" };
 
 // ─── PORTFOLIO CANDLE CHART (lightweight-charts — TradingView style) ────────
-function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
+function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
@@ -112,7 +112,7 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
         secondsVisible: false,
         fixLeftEdge: true,
         fixRightEdge: true,
-        barSpacing: 8,
+        minBarSpacing: 1,
       },
       rightPriceScale: {
         borderColor: "rgba(255,255,255,0.04)",
@@ -161,8 +161,13 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
     if (lineRef.current && costBasisData?.length) {
       lineRef.current.setData(costBasisData);
     }
-    if (chartRef.current) chartRef.current.timeScale().fitContent();
-  }, [data, costBasisData]);
+    if (chartRef.current) {
+      // Set visible range to match the selected lookback
+      const now = Math.floor(Date.now() / 1000);
+      const from = now - (chartRange || 90) * 24 * 60 * 60;
+      chartRef.current.timeScale().setVisibleRange({ from, to: now });
+    }
+  }, [data, costBasisData, chartRange]);
 
   return <div ref={containerRef} style={{ height: 320, width: "100%", background: "#080a0f", borderRadius: 6 }} />;
 }
@@ -899,24 +904,26 @@ export default function Portfolio({ onNavigateToChart }) {
 
   const chartData = useMemo(() => {
     if (snapshotData.length === 0) return [];
-    // Group snapshots into hourly OHLC candles
-    const byHour = {};
+    // Group snapshots into 4-hour OHLC candles
+    const BUCKET_SEC = 4 * 3600; // 4 hours in seconds
+    const byBucket = {};
     snapshotData.forEach(s => {
       const dt = new Date(s.date);
-      // Use UTC hour bucket for consistent candle times
-      const hourTs = Math.floor(dt.getTime() / 3600000) * 3600; // Unix seconds, hourly
-      if (!byHour[hourTs]) {
-        byHour[hourTs] = { time: hourTs, open: s.totalValue, high: s.totalValue, low: s.totalValue, close: s.totalValue, costBasis: s.costBasis };
+      const bucketTs = Math.floor(dt.getTime() / 1000 / BUCKET_SEC) * BUCKET_SEC;
+      if (!byBucket[bucketTs]) {
+        byBucket[bucketTs] = { time: bucketTs, open: s.totalValue, high: s.totalValue, low: s.totalValue, close: s.totalValue, costBasis: s.costBasis };
       } else {
-        const c = byHour[hourTs];
+        const c = byBucket[bucketTs];
         c.high = Math.max(c.high, s.totalValue);
         c.low = Math.min(c.low, s.totalValue);
-        c.close = s.totalValue; // last snapshot in the hour = close
+        c.close = s.totalValue;
         c.costBasis = s.costBasis;
       }
     });
-    return Object.values(byHour).sort((a, b) => a.time - b.time);
-  }, [snapshotData]);
+    // Filter to chartRange window
+    const cutoff = Math.floor((Date.now() - chartRange * 24 * 60 * 60 * 1000) / 1000);
+    return Object.values(byBucket).filter(c => c.time >= cutoff).sort((a, b) => a.time - b.time);
+  }, [snapshotData, chartRange]);
 
   const summary = useMemo(() => {
     let marketValue = 0, marketCost = 0, marketPnl = 0;
@@ -1102,6 +1109,7 @@ export default function Portfolio({ onNavigateToChart }) {
               data={chartData}
               costBasisData={chartData.map(c => ({ time: c.time, value: c.costBasis }))}
               privacyMode={privacyMode}
+              chartRange={chartRange}
             />
           )}
         </div>
