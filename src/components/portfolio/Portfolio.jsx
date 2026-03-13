@@ -355,7 +355,7 @@ function UpdateValueModal({ holding, onSave, onCancel }) {
         background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
         borderRadius: 12, padding: 24, minWidth: 340, fontFamily: FONTS.mono,
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
           Update Value: {holding.label || holding.symbol}
         </div>
         <Row label="Current estimated value per unit">
@@ -428,7 +428,7 @@ function EditCardModal({ holding, onSave, onCancel }) {
         borderRadius: 12, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
         maxHeight: "85vh", overflowY: "auto",
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
           Edit Card: {holding.label || holding.symbol}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -569,7 +569,7 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
         borderRadius: 12, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono,
         maxHeight: "85vh", overflowY: "auto",
       }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
           Add Asset
         </div>
         <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
@@ -1040,7 +1040,7 @@ export default function Portfolio({ onNavigateToChart }) {
     <div style={S.container}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.display, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>Portfolio Tracker</div>
+          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: FONTS.ui, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>Portfolio Tracker</div>
           <div style={{ fontSize: 9, color: COLORS.text.dim, marginTop: 4 }}>
             {lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Loading..."}
             {loading && " • Refreshing..."}
@@ -1131,7 +1131,7 @@ export default function Portfolio({ onNavigateToChart }) {
                 <tr key={h.id}>
                   <td style={{ ...S.td, fontWeight: 600, color: COLORS.text.primary }}>{h.label || h.symbol}<span style={{ marginLeft: 6, fontSize: 9, color: COLORS.text.dim }}>{h.symbol}</span></td>
                   <td style={S.td}>{B(h.qty)}</td>
-                  <td style={{ ...S.td, color: (h.leverage || 1) > 1 ? COLORS.warning.text : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}</td>
+                  <td style={{ ...S.td, color: (h.leverage || 1) > 1 ? COLORS.accent.blue : COLORS.text.dim }}>{(h.leverage || 1) > 1 ? `${h.leverage}×` : "1×"}</td>
                   <td style={S.td}>{B(fmtPrice(h.costBasis))}</td>
                   <td style={{ ...S.td, color: h.currentPrice > 0 ? COLORS.text.primary : COLORS.text.dim }}>{h.currentPrice > 0 ? fmtPrice(h.currentPrice) : "—"}</td>
                   <td style={{ ...S.td, color: pnlColor(h.change24h) }}>{h.change24h ? `${h.change24h >= 0 ? "+" : ""}${h.change24h.toFixed(2)}%` : "—"}</td>
@@ -1284,7 +1284,7 @@ export default function Portfolio({ onNavigateToChart }) {
       {closingHolding && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setClosingHolding(null)}>
           <div style={{ background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 440, fontFamily: FONTS.mono }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.display }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>
               {closingHolding.assetClass === "collectible" ? "Sell" : "Close"}: {closingHolding.label || closingHolding.symbol}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

@@ -9,29 +9,29 @@ export const COLORS = {
   // Backgrounds
   bg: {
     primary: "#0a0c10",
-    secondary: "#0d0f15",
-    elevated: "#12151c",
+    secondary: "#0d1017",
+    elevated: "#121620",
     input: "#0a0c10",
   },
 
   // Borders
   border: {
-    primary: "#1a1d28",
-    secondary: "#1e2330",
-    subtle: "#1a1d2860",
+    primary: "#1a1e2e",
+    secondary: "#222838",
+    subtle: "#1a1e2e60",
   },
 
   // Text
   text: {
-    primary: "#e0e4ec",
-    secondary: "#c8ccd4",
-    muted: "#6a7080",
-    dim: "#4a5060",
-    faint: "#3a4050",
-    ghost: "#2a3040",
+    primary: "#e2e6f0",
+    secondary: "#b0b8c8",
+    muted: "#6a7488",
+    dim: "#4a5268",
+    faint: "#3a4258",
+    ghost: "#2a3248",
   },
 
-  // Accents
+  // Accents — ONE accent color (blue)
   accent: {
     blue: "#3b82f6",
     blueBg: "#3b82f618",
@@ -39,7 +39,7 @@ export const COLORS = {
     blueHover: "#3b82f620",
   },
 
-  // Semantic
+  // Semantic — red/green for P&L only
   positive: {
     text: "#22c55e",
     bg: "#22c55e15",
@@ -50,20 +50,6 @@ export const COLORS = {
     bg: "#ef444420",
     border: "#ef444430",
   },
-  warning: {
-    text: "#f59e0b",
-    bg: "#f59e0b15",
-  },
-  purple: {
-    text: "#8b5cf6",
-    bg: "#8b5cf615",
-  },
-  cyan: {
-    text: "#06b6d4",
-  },
-  pink: {
-    text: "#ec4899",
-  },
 
   // Chart palette for multi-series
   chartPalette: ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"],
@@ -71,10 +57,8 @@ export const COLORS = {
 
 export const FONTS = {
   mono: "'JetBrains Mono', monospace",
-  display: "'Space Grotesk', sans-serif",
+  ui: "'DM Sans', sans-serif",
 };
-
-export const FONT_IMPORT_URL = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap";
 
 /**
  * Strategy presets for the options simulator.

@@ -36,7 +36,7 @@ export default function App() {
           {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: COLORS.accent.blue, boxShadow: `0 0 10px ${COLORS.accent.blue}80` }} />
-            <span style={{ fontFamily: FONTS.display, fontSize: 14, fontWeight: 700, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>OPTIONS LAB</span>
+            <span style={{ fontFamily: FONTS.ui, fontSize: 14, fontWeight: 700, color: COLORS.text.primary, letterSpacing: "-0.3px" }}>OPTIONS LAB</span>
           </div>
           <div style={{ width: 1, height: 20, background: COLORS.border.secondary }} />
 

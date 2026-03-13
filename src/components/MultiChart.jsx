@@ -97,7 +97,6 @@ export default function MultiChart() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#060810", overflow: "hidden" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap');
         .mc-chip {
           padding: 4px 10px; font-size: 10px; font-family: 'JetBrains Mono', monospace;
           cursor: pointer; border-radius: 3px; border: 1px solid rgba(255,255,255,0.06);

@@ -1492,7 +1492,6 @@ ${rollOptCharts}
   return (
     <div style={{ minHeight: "100vh", background: "#0a0c10", color: "#c8ccd4", fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         input[type="number"], input[type="date"], input[type="text"], select {
           background: #12151c; border: 1px solid #1e2330; color: #e0e4ec;
@@ -1540,7 +1539,7 @@ ${rollOptCharts}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 12px #3b82f680" }} />
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 700, color: "#e0e4ec", letterSpacing: "-0.5px" }}>OPTIONS LAB</span>
+            <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 18, fontWeight: 700, color: "#e0e4ec", letterSpacing: "-0.5px" }}>OPTIONS LAB</span>
             <span style={{ fontSize: 10, color: "#3b82f6", background: "#3b82f615", padding: "2px 8px", borderRadius: 4, letterSpacing: "1px" }}>v0.5</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

@@ -147,7 +147,7 @@ export default function PokemonMarket() {
       {/* ── HEADER ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
-          <h2 style={{ fontFamily: FONTS.display, fontSize: 20, fontWeight: 700, color: COLORS.text.primary, margin: 0 }}>
+          <h2 style={{ fontFamily: FONTS.ui, fontSize: 20, fontWeight: 700, color: COLORS.text.primary, margin: 0 }}>
             Pokemon Market
           </h2>
           <p style={{ fontSize: 10, color: COLORS.text.dim, marginTop: 4, margin: 0 }}>
@@ -236,7 +236,7 @@ export default function PokemonMarket() {
                         </div>
                         {card.rarity && (
                           <div style={{ marginTop: 3 }}>
-                            <span style={S.badge(COLORS.purple.text)}>{card.rarity}</span>
+                            <span style={S.badge(COLORS.accent.blue)}>{card.rarity}</span>
                           </div>
                         )}
                         {bp?.market && (
@@ -317,7 +317,7 @@ export default function PokemonMarket() {
                         {p?.market ? fmtDollar(p.market) : "—"}
                       </td>
                       <td style={{ ...S.td, textAlign: "right" }}>
-                        {p?.variant && <span style={S.badge(COLORS.purple.text)}>{p.variant}</span>}
+                        {p?.variant && <span style={S.badge(COLORS.accent.blue)}>{p.variant}</span>}
                       </td>
                       <td style={{ ...S.td, textAlign: "center", color: changes.pct7d != null ? pnlColor(changes.pct7d) : COLORS.text.dim }}>
                         {changes.pct7d != null ? fmtPnlPct(changes.pct7d) : "—"}
@@ -362,7 +362,7 @@ export default function PokemonMarket() {
                   <img src={selectedCard.image} alt="" style={{ width: 40, height: 56, objectFit: "contain", borderRadius: 4 }} />
                 )}
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, fontFamily: FONTS.display }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, fontFamily: FONTS.ui }}>
                     {selectedCard.name}
                   </div>
                   <div style={{ fontSize: 10, color: COLORS.text.dim }}>
@@ -439,7 +439,7 @@ export default function PokemonMarket() {
                 {selectedPrice.high != null && (
                   <div>
                     <div style={S.cardLabel}>High</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.warning.text }}>{fmtDollar(selectedPrice.high)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text.primary }}>{fmtDollar(selectedPrice.high)}</div>
                   </div>
                 )}
                 {selectedPrice.updatedAt && (
@@ -485,7 +485,7 @@ export default function PokemonMarket() {
                     </div>
                     {card.rarity && (
                       <div style={{ marginTop: 3 }}>
-                        <span style={S.badge(COLORS.purple.text)}>{card.rarity}</span>
+                        <span style={S.badge(COLORS.accent.blue)}>{card.rarity}</span>
                       </div>
                     )}
                   </div>
@@ -515,7 +515,7 @@ export default function PokemonMarket() {
       {watchlist.length === 0 && !searchResults && (
         <div style={{ ...S.card, padding: 40, textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.text.primary, fontFamily: FONTS.display, marginBottom: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: COLORS.text.primary, fontFamily: FONTS.ui, marginBottom: 8 }}>
             Start Tracking Pokemon Cards
           </div>
           <div style={{ fontSize: 11, color: COLORS.text.dim, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
