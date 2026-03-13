@@ -3,6 +3,7 @@ import { useBinanceWebSocket } from './hooks/useBinanceWebSocket'
 import LiveTicker from './components/LiveTicker'
 import OptionsSimulator from './components/OptionsSimulator'
 import Portfolio from './components/portfolio/Portfolio'
+import PokemonMarket from './components/PokemonMarket'
 import MultiChart from './components/MultiChart'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import { LIVE_SYMBOLS, COLORS, FONTS } from './utils/constants'
@@ -45,6 +46,7 @@ export default function App() {
               { id: "charts", label: "Charts", icon: "📊" },
               { id: "simulator", label: "Simulator", icon: "⚡" },
               { id: "portfolio", label: "Portfolio", icon: "◉" },
+              { id: "pokemon", label: "Pokemon Market", icon: "⚡" },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                 padding: "5px 14px", fontSize: 11, fontWeight: activeTab === tab.id ? 600 : 400,
@@ -121,6 +123,14 @@ export default function App() {
         <ErrorBoundary label="Portfolio">
           <div style={{ flex: 1, overflow: "auto" }}>
             <Portfolio onNavigateToChart={handleNavigateToChart} />
+          </div>
+        </ErrorBoundary>
+      )}
+
+      {activeTab === "pokemon" && (
+        <ErrorBoundary label="Pokemon Market">
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <PokemonMarket />
           </div>
         </ErrorBoundary>
       )}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { createChart } from "lightweight-charts";
 import { fetchTickers, fetchAllKlines } from "../../hooks/useMarketData";
 import { fetchCardPrices } from "../../hooks/useCardPrices";
 import { fmtDollar, fmtPnl, fmtPnlPct, fmtPrice } from "../../utils/format";
@@ -78,6 +79,93 @@ const S = {
 const pnlColor = (v) => v >= 0 ? COLORS.positive.text : COLORS.negative.text;
 const blurStyle = { filter: "blur(8px)", userSelect: "none", transition: "filter 0.2s" };
 
+// ─── PORTFOLIO CANDLE CHART (lightweight-charts) ────────────────────────────
+function PortfolioCandleChart({ data, costBasisData, privacyMode }) {
+  const containerRef = useRef(null);
+  const chartRef = useRef(null);
+  const candleRef = useRef(null);
+  const lineRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+
+    const chart = createChart(el, {
+      layout: {
+        background: { color: COLORS.bg.elevated },
+        textColor: COLORS.text.dim,
+        fontFamily: FONTS.mono,
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: COLORS.border.primary },
+        horzLines: { color: COLORS.border.primary },
+      },
+      crosshair: {
+        mode: 0,
+        vertLine: { color: "rgba(59,130,246,0.3)", width: 1, style: 2, labelBackgroundColor: COLORS.bg.elevated },
+        horzLine: { color: "rgba(59,130,246,0.3)", width: 1, style: 2, labelBackgroundColor: COLORS.bg.elevated },
+      },
+      timeScale: {
+        borderColor: COLORS.border.primary,
+        timeVisible: true,
+        secondsVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      rightPriceScale: {
+        borderColor: COLORS.border.primary,
+        scaleMargins: { top: 0.05, bottom: 0.05 },
+        visible: !privacyMode,
+      },
+      handleScroll: true,
+      handleScale: true,
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: "#22c55e",
+      downColor: "#ef4444",
+      borderUpColor: "#22c55e",
+      borderDownColor: "#ef4444",
+      wickUpColor: "#22c55e80",
+      wickDownColor: "#ef444480",
+    });
+
+    const costLine = chart.addLineSeries({
+      color: COLORS.text.dim,
+      lineWidth: 1,
+      lineStyle: 2, // dashed
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    chartRef.current = chart;
+    candleRef.current = candleSeries;
+    lineRef.current = costLine;
+
+    const ro = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) chart.resize(width, height);
+    });
+    ro.observe(el);
+
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; candleRef.current = null; lineRef.current = null; };
+  }, [privacyMode]);
+
+  // Update data when it changes
+  useEffect(() => {
+    if (!candleRef.current || !data?.length) return;
+    candleRef.current.setData(data);
+    if (lineRef.current && costBasisData?.length) {
+      lineRef.current.setData(costBasisData);
+    }
+    if (chartRef.current) chartRef.current.timeScale().fitContent();
+  }, [data, costBasisData]);
+
+  return <div ref={containerRef} style={{ height: 280, width: "100%" }} />;
+}
+
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -103,6 +191,150 @@ function Row({ label, children, flex }) {
       {children}
     </div>
   );
+}
+
+// ─── POKEMON SET DROPDOWN ───────────────────────────────────────────────────
+let _pokemonSetsCache = null
+
+function usePokemonSets() {
+  const [sets, setSets] = useState(_pokemonSetsCache || [])
+  useEffect(() => {
+    if (_pokemonSetsCache) return
+    fetch("/api/pokemon/v2/sets?orderBy=-releaseDate&pageSize=250")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.data) return
+        const list = data.data.map(s => ({
+          id: s.id,
+          name: s.name,
+          series: s.series,
+          releaseDate: s.releaseDate,
+          year: s.releaseDate ? s.releaseDate.slice(0, 4) : "",
+        }))
+        _pokemonSetsCache = list
+        setSets(list)
+      })
+      .catch(() => {})
+  }, [])
+  return sets
+}
+
+function PokemonSetSelect({ value, onChange, onSetNameChange }) {
+  const sets = usePokemonSets()
+  const [filter, setFilter] = useState("")
+  const [open, setOpen] = useState(false)
+  const wrapperRef = useRef(null)
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [open])
+
+  const filtered = useMemo(() => {
+    if (!filter) return sets
+    const q = filter.toLowerCase()
+    return sets.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      s.series.toLowerCase().includes(q) ||
+      s.year.includes(q)
+    )
+  }, [sets, filter])
+
+  // Group by series for cleaner browsing
+  const grouped = useMemo(() => {
+    const groups = {}
+    filtered.forEach(s => {
+      const key = s.series || "Other"
+      if (!groups[key]) groups[key] = []
+      groups[key].push(s)
+    })
+    return groups
+  }, [filtered])
+
+  const handleSelect = (set) => {
+    onChange(set.id)
+    if (onSetNameChange) onSetNameChange(set.name)
+    setFilter("")
+    setOpen(false)
+  }
+
+  const selectedSet = sets.find(s => s.id === value)
+  const displayLabel = selectedSet ? `${selectedSet.name} (${selectedSet.year})` : ""
+
+  if (!sets.length) {
+    return <input style={{ ...S.input, width: "100%" }} placeholder="Loading sets..." value={value} onChange={e => onChange(e.target.value)} />
+  }
+
+  return (
+    <div ref={wrapperRef} style={{ position: "relative" }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          ...S.input, width: "100%", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
+          boxSizing: "border-box",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: value ? COLORS.text.primary : COLORS.text.dim }}>
+          {displayLabel || "Select a set..."}
+        </span>
+        <span style={{ fontSize: 8, color: COLORS.text.dim, flexShrink: 0, marginLeft: 4 }}>▼</span>
+      </div>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+          background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`,
+          borderRadius: 6, marginTop: 2, maxHeight: 300, display: "flex", flexDirection: "column",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        }}>
+          <input
+            autoFocus
+            style={{ ...S.input, width: "100%", borderRadius: "6px 6px 0 0", border: "none", borderBottom: `1px solid ${COLORS.border.primary}`, boxSizing: "border-box" }}
+            placeholder="Type to search sets..."
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            onClick={e => e.stopPropagation()}
+          />
+          <div style={{ overflowY: "auto", maxHeight: 260 }}>
+            {Object.entries(grouped).map(([series, items]) => (
+              <div key={series}>
+                <div style={{
+                  padding: "6px 10px", fontSize: 9, fontWeight: 600, color: COLORS.accent.blue,
+                  textTransform: "uppercase", letterSpacing: "0.5px", background: COLORS.bg.primary,
+                  position: "sticky", top: 0,
+                }}>
+                  {series}
+                </div>
+                {items.map(s => (
+                  <div
+                    key={s.id}
+                    onClick={() => handleSelect(s)}
+                    style={{
+                      padding: "7px 10px", cursor: "pointer", fontSize: 11,
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      background: s.id === value ? COLORS.accent.blueBg : "transparent",
+                      borderLeft: s.id === value ? `2px solid ${COLORS.accent.blue}` : "2px solid transparent",
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={e => { if (s.id !== value) e.currentTarget.style.background = COLORS.bg.elevated }}
+                    onMouseLeave={e => { if (s.id !== value) e.currentTarget.style.background = "transparent" }}
+                  >
+                    <span style={{ color: COLORS.text.primary }}>{s.name}</span>
+                    <span style={{ fontSize: 9, color: COLORS.text.dim, flexShrink: 0, marginLeft: 8 }}>{s.year}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ padding: 16, textAlign: "center", color: COLORS.text.dim, fontSize: 10 }}>No sets match "{filter}"</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── UPDATE VALUE MODAL ─────────────────────────────────────────────────────
@@ -209,25 +441,24 @@ function EditCardModal({ holding, onSave, onCancel }) {
           </Row>
           {cardGame === "pokemon" && (
             <>
+              <Row label="Set">
+                <PokemonSetSelect value={setId} onChange={setSetId} onSetNameChange={setCardSet} />
+              </Row>
               <div style={{ display: "flex", gap: 8 }}>
-                <Row label="Set ID" flex={1}>
-                  <input style={{ ...S.input, width: "100%" }} placeholder="base1, swsh12pt5, sv1" value={setId}
-                    onChange={e => setSetId(e.target.value)} />
-                </Row>
                 <Row label="Card #" flex={1}>
                   <input style={{ ...S.input, width: "100%" }} placeholder="4" value={cardNumber}
                     onChange={e => setCardNumber(e.target.value)} />
                 </Row>
+                <Row label="Variant" flex={1}>
+                  <select style={{ ...S.input, width: "100%" }} value={variant} onChange={e => setVariant(e.target.value)}>
+                    <option value="holofoil">Holofoil</option>
+                    <option value="normal">Normal</option>
+                    <option value="reverseHolofoil">Reverse Holofoil</option>
+                    <option value="1stEditionHolofoil">1st Edition Holofoil</option>
+                    <option value="1stEditionNormal">1st Edition Normal</option>
+                  </select>
+                </Row>
               </div>
-              <Row label="Variant">
-                <select style={{ ...S.input, width: "100%" }} value={variant} onChange={e => setVariant(e.target.value)}>
-                  <option value="holofoil">Holofoil</option>
-                  <option value="normal">Normal</option>
-                  <option value="reverseHolofoil">Reverse Holofoil</option>
-                  <option value="1stEditionHolofoil">1st Edition Holofoil</option>
-                  <option value="1stEditionNormal">1st Edition Normal</option>
-                </select>
-              </Row>
             </>
           )}
           {cardGame === "yugioh" && (
@@ -244,7 +475,7 @@ function EditCardModal({ holding, onSave, onCancel }) {
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <Row label="Set Name" flex={1}>
-              <input style={{ ...S.input, width: "100%" }} placeholder="Base Set" value={cardSet}
+              <input style={{ ...S.input, width: "100%" }} placeholder={cardGame === "pokemon" ? "Auto-filled from set" : "Base Set"} value={cardSet}
                 onChange={e => setCardSet(e.target.value)} />
             </Row>
             <Row label="Grade" flex={1}>
@@ -371,25 +602,24 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
               </Row>
               {cardGame === "pokemon" && (
                 <>
+                  <Row label="Set">
+                    <PokemonSetSelect value={setId} onChange={setSetId} onSetNameChange={setCardSet} />
+                  </Row>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <Row label="Set ID" flex={1}>
-                      <input style={{ ...S.input, width: "100%" }} placeholder="base1, swsh12pt5, sv1" value={setId}
-                        onChange={e => setSetId(e.target.value)} />
-                    </Row>
                     <Row label="Card #" flex={1}>
                       <input style={{ ...S.input, width: "100%" }} placeholder="4" value={cardNumber}
                         onChange={e => setCardNumber(e.target.value)} />
                     </Row>
+                    <Row label="Variant" flex={1}>
+                      <select style={{ ...S.input, width: "100%" }} value={variant} onChange={e => setVariant(e.target.value)}>
+                        <option value="holofoil">Holofoil</option>
+                        <option value="normal">Normal</option>
+                        <option value="reverseHolofoil">Reverse Holofoil</option>
+                        <option value="1stEditionHolofoil">1st Edition Holofoil</option>
+                        <option value="1stEditionNormal">1st Edition Normal</option>
+                      </select>
+                    </Row>
                   </div>
-                  <Row label="Variant">
-                    <select style={{ ...S.input, width: "100%" }} value={variant} onChange={e => setVariant(e.target.value)}>
-                      <option value="holofoil">Holofoil</option>
-                      <option value="normal">Normal</option>
-                      <option value="reverseHolofoil">Reverse Holofoil</option>
-                      <option value="1stEditionHolofoil">1st Edition Holofoil</option>
-                      <option value="1stEditionNormal">1st Edition Normal</option>
-                    </select>
-                  </Row>
                 </>
               )}
               {cardGame === "yugioh" && (
@@ -406,7 +636,7 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
               )}
               <div style={{ display: "flex", gap: 8 }}>
                 <Row label="Set Name" flex={1}>
-                  <input style={{ ...S.input, width: "100%" }} placeholder={cardGame === "pokemon" ? "Base Set" : "Legend of Blue Eyes"} value={cardSet}
+                  <input style={{ ...S.input, width: "100%" }} placeholder={cardGame === "pokemon" ? "Auto-filled from set" : "Legend of Blue Eyes"} value={cardSet}
                     onChange={e => setCardSet(e.target.value)} />
                 </Row>
                 <Row label="Grade" flex={1}>
@@ -552,19 +782,7 @@ export default function Portfolio({ onNavigateToChart }) {
       }
 
       setLastRefresh(new Date());
-      // Local snapshot every 2h
-      const now = new Date();
-      const h2 = Math.floor(now.getHours() / 2) * 2;
-      const snapKey = `${now.toISOString().split("T")[0]}T${String(h2).padStart(2, "0")}`;
-      const lastSnap = snapshots[snapshots.length - 1];
-      if (!lastSnap || lastSnap.date !== snapKey) {
-        let totalValue = 0;
-        marketHoldings.forEach(h => { totalValue += ((result[h.symbol.toUpperCase()]?.price || 0) * h.qty) / (h.leverage || 1); });
-        collectibleHoldings.forEach(h => { totalValue += (h.manualPrice || 0) * h.qty; });
-        cashHoldings.forEach(h => { totalValue += h.qty; });
-        if (totalValue > 0) setSnapshots(prev => [...prev.slice(-4380), { date: snapKey, value: totalValue }]);
-      }
-      // Record snapshot to Supabase every 2h
+      // Record snapshot to Supabase every 10 min for hourly OHLC candles
       if (shouldTakeSnapshot()) {
         let mv = 0, cv = 0, cashV = 0, cb = 0;
         marketHoldings.forEach(h => {
@@ -582,7 +800,7 @@ export default function Portfolio({ onNavigateToChart }) {
     } catch (err) {
       if (import.meta.env.DEV) console.error("[Portfolio] refresh failed:", err);
     } finally { setLoading(false); }
-  }, [marketHoldings, collectibleHoldings, cashHoldings, snapshots]);
+  }, [marketHoldings, collectibleHoldings, cashHoldings]);
 
   // Backfill: seed 7 days of snapshots from kline data on first load
   const refreshChart = useCallback(async () => {
@@ -593,7 +811,7 @@ export default function Portfolio({ onNavigateToChart }) {
     try {
       const startTime = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const requests = marketHoldings.map(h => ({ symbol: h.symbol, type: h.type, exchange: h.exchange, startTime }));
-      const klines = await fetchAllKlines(requests, "2h");
+      const klines = await fetchAllKlines(requests, "1h");
       if (!klines || Object.keys(klines).length === 0) return;
 
       const assetTimePrice = {};
@@ -680,13 +898,23 @@ export default function Portfolio({ onNavigateToChart }) {
 
   const chartData = useMemo(() => {
     if (snapshotData.length === 0) return [];
-    // Group by day, take last snapshot per day
-    const byDay = {};
+    // Group snapshots into hourly OHLC candles
+    const byHour = {};
     snapshotData.forEach(s => {
-      const day = s.date.slice(0, 10);
-      byDay[day] = { date: day, totalValue: s.totalValue, costBasis: s.costBasis };
+      const dt = new Date(s.date);
+      // Use UTC hour bucket for consistent candle times
+      const hourTs = Math.floor(dt.getTime() / 3600000) * 3600; // Unix seconds, hourly
+      if (!byHour[hourTs]) {
+        byHour[hourTs] = { time: hourTs, open: s.totalValue, high: s.totalValue, low: s.totalValue, close: s.totalValue, costBasis: s.costBasis };
+      } else {
+        const c = byHour[hourTs];
+        c.high = Math.max(c.high, s.totalValue);
+        c.low = Math.min(c.low, s.totalValue);
+        c.close = s.totalValue; // last snapshot in the hour = close
+        c.costBasis = s.costBasis;
+      }
     });
-    return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+    return Object.values(byHour).sort((a, b) => a.time - b.time);
   }, [snapshotData]);
 
   const summary = useMemo(() => {
@@ -863,45 +1091,17 @@ export default function Portfolio({ onNavigateToChart }) {
             ))}
           </div>
         </div>
-        <div style={{ ...S.card, padding: "16px 8px 8px" }}>
+        <div style={{ ...S.card, padding: "8px" }}>
           {(chartLoading || snapshotLoading) && chartData.length === 0 ? (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>Loading chart data...</div>
           ) : chartData.length === 0 ? (
             <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>No historical data. Add market assets and refresh.</div>
           ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={COLORS.accent.blue} stopOpacity={0.3} />
-                    <stop offset="100%" stopColor={COLORS.accent.blue} stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={COLORS.border.primary} strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fill: COLORS.text.dim, fontSize: 9 }} tickLine={false}
-                  axisLine={{ stroke: COLORS.border.primary }}
-                  tickFormatter={d => {
-                    if (d.length > 10) {
-                      // Hourly format: "2026-02-20T14"
-                      const dt = new Date(d + ":00:00Z");
-                      if (chartRange <= 1) {
-                        return dt.toLocaleTimeString([], { hour: "numeric", hour12: true });
-                      }
-                      return `${dt.getMonth() + 1}/${dt.getDate()} ${dt.toLocaleTimeString([], { hour: "numeric", hour12: true })}`;
-                    }
-                    const dt = new Date(d);
-                    return `${dt.getMonth() + 1}/${dt.getDate()}`;
-                  }}
-                  interval="preserveStartEnd" minTickGap={chartRange <= 1 ? 30 : 60} />
-                <YAxis tick={{ fill: COLORS.text.dim, fontSize: 9 }} tickLine={false}
-                  axisLine={{ stroke: COLORS.border.primary }}
-                  tickFormatter={v => privacyMode ? "•••" : (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`)}
-                  domain={["auto", "auto"]} />
-                <Tooltip content={privacyMode ? () => null : <ChartTooltip />} />
-                <Area type="monotone" dataKey="totalValue" name="Portfolio" stroke={COLORS.accent.blue} strokeWidth={2} fill="url(#portfolioGrad)" />
-                <Line type="monotone" dataKey="costBasis" name="Cost Basis" stroke={COLORS.text.dim} strokeWidth={1} strokeDasharray="6 3" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <PortfolioCandleChart
+              data={chartData}
+              costBasisData={chartData.map(c => ({ time: c.time, value: c.costBasis }))}
+              privacyMode={privacyMode}
+            />
           )}
         </div>
       </div>

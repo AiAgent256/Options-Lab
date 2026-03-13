@@ -171,7 +171,7 @@ export async function forcePullFromCloud() {
 // ─── PORTFOLIO SNAPSHOTS (time-series in Supabase) ──────────────────────────
 const SNAP_TABLE = "portfolio_snapshots";
 const LS_LAST_SNAPSHOT = "optlab:portfolio:lastSnapshotTime";
-const SNAPSHOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000; // 10 min — frequent samples for hourly OHLC candles
 
 export function shouldTakeSnapshot() {
   try {

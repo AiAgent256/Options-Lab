@@ -8,7 +8,11 @@
     { "src": "api/pokemon/[...path].js", "use": "@vercel/node" },
     { "src": "api/yugioh/[...path].js", "use": "@vercel/node" },
     { "src": "api/pricecharting/[...path].js", "use": "@vercel/node" },
-    { "src": "api/news/feed.js", "use": "@vercel/node" }
+    { "src": "api/news/feed.js", "use": "@vercel/node" },
+    { "src": "api/cron/snapshot.js", "use": "@vercel/node" }
+  ],
+  "crons": [
+    { "path": "/api/cron/snapshot", "schedule": "0 * * * *" }
   ],
   "routes": [
     { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
@@ -19,6 +23,7 @@
     { "src": "/api/yugioh/(.*)", "dest": "/api/yugioh/[...path].js" },
     { "src": "/api/pricecharting/(.*)", "dest": "/api/pricecharting/[...path].js" },
     { "src": "/api/news/feed", "dest": "/api/news/feed.js" },
+    { "src": "/api/cron/snapshot", "dest": "/api/cron/snapshot.js" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
