@@ -20,7 +20,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 // ─── SYMBOL MAPS ────────────────────────────────────────────────────────────
 // Canonical source: src/utils/symbols.js — keep in sync when adding symbols.
-import { COINBASE_PRODUCTS as COINBASE_MAP, YAHOO_OVERRIDES } from "../../src/utils/symbols.js"
+import { COINBASE_PRODUCTS as COINBASE_MAP, PHEMEX_PRODUCTS as PHEMEX_MAP, YAHOO_OVERRIDES } from "../../src/utils/symbols.js"
 
 // ─── PRICE FETCHERS (server-side, no proxy needed) ──────────────────────────
 
@@ -30,6 +30,19 @@ async function fetchCoinbasePrice(cbSymbol) {
     if (!res.ok) return null
     const data = await res.json()
     return parseFloat(data.price) || null
+  } catch { return null }
+}
+
+async function fetchPhemexPrice(phSymbol) {
+  try {
+    const res = await fetch(`https://api.phemex.com/md/v3/ticker/24hr?symbol=${phSymbol}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    const last = data?.result?.lastRp || data?.result?.lastEp
+    if (!last) return null
+    const raw = typeof last === "string" ? parseFloat(last) : last
+    // v3 lastRp is already a decimal string; lastEp may be scaled 1e8
+    return raw > 1e6 ? raw / 1e8 : raw || null
   } catch { return null }
 }
 
@@ -87,6 +100,13 @@ export default async function handler(req, res) {
         const cbSym = COINBASE_MAP[sym] || (h.type !== "equity" ? `${sym}-USD` : null)
         if (cbSym) {
           const p = await fetchCoinbasePrice(cbSym)
+          if (p) { prices[sym] = p; return }
+        }
+
+        // Crypto → Phemex (fallback for tokens not on Coinbase)
+        const phSym = PHEMEX_MAP[sym]
+        if (phSym) {
+          const p = await fetchPhemexPrice(phSym)
           if (p) { prices[sym] = p; return }
         }
 
