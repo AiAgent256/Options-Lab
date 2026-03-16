@@ -915,7 +915,21 @@ export default function Portfolio({ onNavigateToChart }) {
     return { enrichedMarket, enrichedCollectibles, marketValue, marketCost, marketPnl, collectibleValue, collectibleCost, cashValue, totalValue, totalCost, totalPnl, totalPnlPct, realizedPnl };
   }, [marketHoldings, collectibleHoldings, cashHoldings, prices, closedTrades]);
 
-  const addHolding = useCallback((h) => { setHoldings(prev => [...prev, h]); setNextId(p => p + 1); setShowAddModal(false); }, []);
+  const addHolding = useCallback((h) => {
+    setHoldings(prev => {
+      const next = [...prev, h];
+      // Deduct cost from Trading Cash when opening a market position
+      if ((h.assetClass || "market") === "market") {
+        const lev = h.leverage || 1;
+        const cost = (h.costBasis * h.qty) / lev;
+        const ci = next.findIndex(x => x.assetClass === "cash" && x.symbol === "TRADING_CASH");
+        if (ci >= 0 && cost > 0) next[ci] = { ...next[ci], qty: Math.max(0, next[ci].qty - cost) };
+      }
+      return next;
+    });
+    setNextId(p => p + 1);
+    setShowAddModal(false);
+  }, []);
   const removeHolding = useCallback((id) => { setHoldings(prev => prev.filter(h => h.id !== id)); }, []);
   const updateManualPrice = useCallback((id, np) => {
     setHoldings(prev => prev.map(h => h.id === id ? { ...h, manualPrice: np, manualPriceDate: new Date().toISOString().split("T")[0] } : h));
