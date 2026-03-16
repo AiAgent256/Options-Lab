@@ -1,0 +1,4 @@
+robin-stocks
+supabase
+python-dotenv
+pyotp

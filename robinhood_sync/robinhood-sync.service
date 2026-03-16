@@ -1,0 +1,16 @@
+[Unit]
+Description=Robinhood → Supabase portfolio sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/robinhood_sync
+ExecStart=/opt/robinhood_sync/venv/bin/python sync.py
+Restart=on-failure
+RestartSec=60
+EnvironmentFile=/opt/robinhood_sync/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react'
 import Portfolio from './components/portfolio/Portfolio'
 import PokemonMarket from './components/PokemonMarket'
 import MultiChart from './components/MultiChart'
+import Robinhood from './components/Robinhood'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import { COLORS, FONTS } from './utils/constants'
 
@@ -31,6 +32,7 @@ export default function App() {
             {[
               { id: "charts", label: "Charts" },
               { id: "portfolio", label: "Portfolio" },
+              { id: "robinhood", label: "Robinhood" },
               { id: "pokemon", label: "Pokemon" },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
@@ -64,6 +66,14 @@ export default function App() {
         <ErrorBoundary label="Portfolio">
           <div style={{ flex: 1, overflow: "auto" }}>
             <Portfolio onNavigateToChart={handleNavigateToChart} />
+          </div>
+        </ErrorBoundary>
+      )}
+
+      {activeTab === "robinhood" && (
+        <ErrorBoundary label="Robinhood">
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <Robinhood />
           </div>
         </ErrorBoundary>
       )}
