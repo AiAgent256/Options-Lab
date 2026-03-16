@@ -12,7 +12,7 @@
           { "src": "api/cron/snapshot.js", "use": "@vercel/node" }
     ],
     "crons": [
-          { "path": "/api/cron/snapshot", "schedule": "0 0 * * *" }
+          { "path": "/api/cron/snapshot", "schedule": "0 * * * *" }
     ],
     "routes": [
           { "src": "/api/coinbase/(.*)", "dest": "/api/coinbase/[...path].js" },
