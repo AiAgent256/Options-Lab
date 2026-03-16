@@ -30,31 +30,31 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) 
 
     const chart = createChart(el, {
       layout: {
-        background: { color: "#080a10" },
+        background: { color: "#0a0e17" },
         textColor: "#3e4658",
         fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
-        fontSize: 10,
+        fontSize: 11,
       },
       grid: {
         vertLines: { visible: false },
-        horzLines: { color: "rgba(22,26,38,0.5)", style: 1 },
+        horzLines: { visible: false },
       },
       crosshair: {
         mode: 0,
-        vertLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#10131b" },
-        horzLine: { color: "rgba(59,130,246,0.4)", width: 1, style: 2, labelBackgroundColor: "#10131b" },
+        vertLine: { color: "rgba(59,130,246,0.3)", width: 1, style: 2, labelBackgroundColor: "#0a0e17" },
+        horzLine: { color: "rgba(59,130,246,0.3)", width: 1, style: 2, labelBackgroundColor: "#0a0e17" },
       },
       timeScale: {
-        borderColor: "rgba(255,255,255,0.04)",
+        borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
         fixLeftEdge: true,
         fixRightEdge: true,
-        minBarSpacing: 1,
+        minBarSpacing: 6,
       },
       rightPriceScale: {
-        borderColor: "rgba(255,255,255,0.04)",
-        scaleMargins: { top: 0.08, bottom: 0.08 },
+        borderVisible: false,
+        scaleMargins: { top: 0.05, bottom: 0.05 },
         visible: !privacyMode,
       },
       handleScroll: true,
@@ -68,16 +68,17 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) 
       borderDownColor: "#ef5350",
       wickUpColor: "#26a69a",
       wickDownColor: "#ef5350",
-      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+      priceFormat: { type: "price", precision: 0, minMove: 1 },
     });
 
     const costLine = chart.addLineSeries({
-      color: "rgba(255,255,255,0.15)",
+      color: "rgba(239,83,80,0.35)",
       lineWidth: 1,
       lineStyle: 2,
       crosshairMarkerVisible: false,
       priceLineVisible: false,
-      lastValueVisible: false,
+      lastValueVisible: true,
+      priceLineColor: "rgba(239,83,80,0.35)",
     });
 
     chartRef.current = chart;
@@ -107,7 +108,7 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) 
     }
   }, [data, costBasisData, chartRange]);
 
-  return <div ref={containerRef} style={{ height: 320, width: "100%", background: "#080a10", borderRadius: 6 }} />;
+  return <div ref={containerRef} style={{ height: 420, width: "100%", background: "#0a0e17" }} />;
 }
 
 function ChartTooltip({ active, payload, label }) {
@@ -1059,32 +1060,31 @@ export default function Portfolio({ onNavigateToChart }) {
       </div>
 
       {/* Chart */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={S.sectionTitle}>
-          <span>Portfolio Performance</span><div style={S.divider} />
-          <div style={{ display: "flex", gap: 2 }}>
-            {[1, 7, 30, 90, 180, 365].map(d => (
-              <button key={d} onClick={() => setChartRange(d)} style={{
-                ...S.btn, padding: "3px 10px", fontSize: 9,
-                ...(chartRange === d ? { background: COLORS.accent.blueBg, borderColor: COLORS.accent.blueBorder, color: COLORS.accent.blue } : {}),
-              }}>{d}d</button>
-            ))}
-          </div>
+      <div style={{ marginBottom: 24, position: "relative" }}>
+        <div style={{ position: "absolute", top: 10, right: 10, zIndex: 10, display: "flex", gap: 2, opacity: 0.6, transition: "opacity 0.2s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}>
+          {[1, 7, 30, 90, 180, 365].map(d => (
+            <button key={d} onClick={() => setChartRange(d)} style={{
+              background: chartRange === d ? "rgba(255,255,255,0.1)" : "transparent",
+              border: "none", borderRadius: 3, padding: "4px 10px", fontSize: 10,
+              fontFamily: FONTS.mono, cursor: "pointer",
+              color: chartRange === d ? "#d8dce6" : "#3e4658",
+              transition: "all 0.15s",
+            }}>{d}d</button>
+          ))}
         </div>
-        <div style={{ ...S.card, padding: "8px" }}>
-          {(chartLoading || snapshotLoading) && chartData.length === 0 ? (
-            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>Loading chart data...</div>
-          ) : chartData.length === 0 ? (
-            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11 }}>No historical data. Add market assets and refresh.</div>
-          ) : (
-            <PortfolioCandleChart
-              data={chartData}
-              costBasisData={chartData.map(c => ({ time: c.time, value: c.costBasis }))}
-              privacyMode={privacyMode}
-              chartRange={chartRange}
-            />
-          )}
-        </div>
+        {(chartLoading || snapshotLoading) && chartData.length === 0 ? (
+          <div style={{ height: 420, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11, background: "#0a0e17" }}>Loading chart data...</div>
+        ) : chartData.length === 0 ? (
+          <div style={{ height: 420, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.text.dim, fontSize: 11, background: "#0a0e17" }}>No historical data. Add market assets and refresh.</div>
+        ) : (
+          <PortfolioCandleChart
+            data={chartData}
+            costBasisData={chartData.map(c => ({ time: c.time, value: c.costBasis }))}
+            privacyMode={privacyMode}
+            chartRange={chartRange}
+          />
+        )}
       </div>
 
       {/* Market Assets */}
