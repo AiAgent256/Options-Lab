@@ -125,12 +125,20 @@ export default async function handler(req, res) {
       }))
     }
 
-    // 3. Compute portfolio value
+    // 3. Require ALL market holdings to have a price — partial data creates false dips
+    const missingPrices = marketHoldings.filter(h => !prices[h.symbol.toUpperCase()])
+    if (missingPrices.length > 0) {
+      const missing = missingPrices.map(h => h.symbol).join(", ")
+      console.warn(`[Cron] skipping snapshot — missing prices for: ${missing}`)
+      return res.status(200).json({ status: "skip", reason: `missing prices: ${missing}` })
+    }
+
+    // 4. Compute portfolio value
     let marketValue = 0, collectibleValue = 0, cashValue = 0, costBasis = 0
 
     marketHoldings.forEach(h => {
       const sym = h.symbol.toUpperCase()
-      const p = prices[sym] || 0
+      const p = prices[sym]
       const lev = h.leverage || 1
       const margin = (h.costBasis * h.qty) / lev
       const pnl = (p - h.costBasis) * h.qty
@@ -153,7 +161,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: "skip", reason: "zero value" })
     }
 
-    // 4. Save snapshot to Supabase
+    // 5. Save snapshot to Supabase
     const now = new Date().toISOString()
     const { error: snapErr } = await supabase.from("portfolio_snapshots").insert({
       timestamp: now,

@@ -100,10 +100,11 @@ function PortfolioCandleChart({ data, costBasisData, privacyMode, chartRange }) 
     if (lineRef.current && costBasisData?.length) {
       lineRef.current.setData(costBasisData);
     }
-    if (chartRef.current) {
-      // Set visible range to match the selected lookback
+    if (chartRef.current && data.length > 0) {
+      // Set visible range to match the selected lookback, clamped to actual data
       const now = Math.floor(Date.now() / 1000);
-      const from = now - (chartRange || 90) * 24 * 60 * 60;
+      const earliest = data[0].time;
+      const from = Math.max(earliest - 3600, now - (chartRange || 90) * 24 * 60 * 60);
       chartRef.current.timeScale().setVisibleRange({ from, to: now });
     }
   }, [data, costBasisData, chartRange]);
@@ -648,6 +649,97 @@ function AddAssetModal({ onAdd, onCancel, nextId }) {
   );
 }
 
+// ─── HISTORICAL TRADE MODAL ─────────────────────────────────────────────────
+function HistoricalTradeModal({ onAdd, onCancel }) {
+  const [symbol, setSymbol] = useState("");
+  const [label, setLabel] = useState("");
+  const [assetClass, setAssetClass] = useState("market");
+  const [type, setType] = useState("crypto");
+  const [qty, setQty] = useState("");
+  const [costBasis, setCostBasis] = useState("");
+  const [exitPrice, setExitPrice] = useState("");
+  const [openDate, setOpenDate] = useState("");
+  const [closeDate, setCloseDate] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const pnlPreview = (parseFloat(exitPrice) - parseFloat(costBasis)) * (parseFloat(qty) || 0);
+  const canSubmit = symbol.trim() && parseFloat(qty) > 0 && parseFloat(costBasis) >= 0 && parseFloat(exitPrice) >= 0 && openDate && closeDate;
+
+  const handleAdd = () => {
+    if (!canSubmit) return;
+    onAdd({
+      symbol: symbol.trim().toUpperCase(),
+      label: label.trim() || symbol.trim().toUpperCase(),
+      assetClass,
+      type: assetClass === "market" ? type : assetClass,
+      qty: parseFloat(qty),
+      costBasis: parseFloat(costBasis),
+      exitPrice: parseFloat(exitPrice),
+      openDate,
+      closeDate,
+      notes: notes.trim(),
+    });
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
+      <div style={{ background: COLORS.bg.secondary, border: `1px solid ${COLORS.border.secondary}`, borderRadius: 6, padding: 24, minWidth: 420, maxWidth: 480, fontFamily: FONTS.mono }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text.primary, marginBottom: 16, fontFamily: FONTS.ui }}>Add Historical Trade</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Row label="Asset Class" flex={1}>
+              <select style={{ ...S.input, width: "100%" }} value={assetClass} onChange={e => setAssetClass(e.target.value)}>
+                <option value="market">Market</option>
+                <option value="collectible">Collectible</option>
+              </select>
+            </Row>
+            {assetClass === "market" && (
+              <Row label="Type" flex={1}>
+                <select style={{ ...S.input, width: "100%" }} value={type} onChange={e => setType(e.target.value)}>
+                  <option value="crypto">Crypto</option>
+                  <option value="equity">Equity</option>
+                  <option value="commodity">Commodity</option>
+                  <option value="option">Option</option>
+                </select>
+              </Row>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Row label="Symbol" flex={1}><input style={{ ...S.input, width: "100%" }} value={symbol} onChange={e => setSymbol(e.target.value)} placeholder="BTC, AAPL..." /></Row>
+            <Row label="Label (optional)" flex={1}><input style={{ ...S.input, width: "100%" }} value={label} onChange={e => setLabel(e.target.value)} placeholder="Display name" /></Row>
+          </div>
+          <Row label="Quantity"><input style={{ ...S.input, width: "100%" }} type="number" value={qty} onChange={e => setQty(e.target.value)} step="any" placeholder="0" /></Row>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Row label="Entry Price (per unit)" flex={1}><input style={{ ...S.input, width: "100%" }} type="number" value={costBasis} onChange={e => setCostBasis(e.target.value)} step="any" placeholder="0.00" /></Row>
+            <Row label="Exit Price (per unit)" flex={1}><input style={{ ...S.input, width: "100%" }} type="number" value={exitPrice} onChange={e => setExitPrice(e.target.value)} step="any" placeholder="0.00" /></Row>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Row label="Open Date" flex={1}><input style={{ ...S.input, width: "100%" }} type="date" value={openDate} onChange={e => setOpenDate(e.target.value)} /></Row>
+            <Row label="Close Date" flex={1}><input style={{ ...S.input, width: "100%" }} type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} /></Row>
+          </div>
+          <Row label="Notes (optional)"><input style={{ ...S.input, width: "100%" }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Trade context..." /></Row>
+          {costBasis && exitPrice && qty && (
+            <div style={{ padding: 12, background: COLORS.bg.primary, borderRadius: 6, border: `1px solid ${COLORS.border.primary}` }}>
+              <div style={{ fontSize: 9, color: COLORS.text.dim, marginBottom: 6 }}>P&L PREVIEW</div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <span style={{ color: COLORS.text.muted }}>Entry: {fmtPrice(parseFloat(costBasis))} x {qty}</span>
+                <span style={{ color: COLORS.text.muted }}>Exit: {fmtPrice(parseFloat(exitPrice))} x {qty}</span>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8, color: pnlColor(pnlPreview) }}>
+                {fmtPnl(pnlPreview)}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button style={{ ...S.btnPrimary, flex: 1, padding: "8px 16px", opacity: canSubmit ? 1 : 0.4 }} onClick={handleAdd} disabled={!canSubmit}>Add Trade</button>
+            <button style={{ ...S.btn, padding: "8px 16px" }} onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN ───────────────────────────────────────────────────────────────────
 export default function Portfolio({ onNavigateToChart }) {
   const [holdings, setHoldings] = useState(() => loadPortfolio().holdings);
@@ -676,6 +768,7 @@ export default function Portfolio({ onNavigateToChart }) {
   const [snapshotData, setSnapshotData] = useState([]);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(true);
+  const [showHistoricalModal, setShowHistoricalModal] = useState(false);
   const importRef = useRef(null);
 
   // Privacy blur helper — wraps dollar amounts
@@ -743,7 +836,10 @@ export default function Portfolio({ onNavigateToChart }) {
           collectibleHoldings.forEach(h => { cv += (h.manualPrice || 0) * h.qty; });
           cashHoldings.forEach(h => { cashV += h.qty; cb += h.qty; });
           const tv = mv + cv + cashV;
-          if (tv > 0) saveSnapshot({ totalValue: tv, marketValue: mv, collectibleValue: cv, cashValue: cashV, costBasis: cb, unrealizedPnl: tv - cb });
+          // Skip snapshot if value dropped >30% from last known — likely stale/partial data
+          const lastSnap = snapshotData[snapshotData.length - 1];
+          const sane = !lastSnap || tv >= lastSnap.totalValue * 0.7;
+          if (tv > 0 && sane) saveSnapshot({ totalValue: tv, marketValue: mv, collectibleValue: cv, cashValue: cashV, costBasis: cb, unrealizedPnl: tv - cb });
         }
       }
     } catch (err) {
@@ -941,6 +1037,27 @@ export default function Portfolio({ onNavigateToChart }) {
     setHoldings(prev => prev.map(h => h.id === id ? { ...h, ...fields } : h));
     setEditingCard(null);
   }, []);
+
+  const addHistoricalTrade = useCallback((trade) => {
+    const realizedPnl = (trade.exitPrice - trade.costBasis) * trade.qty;
+    setClosedTrades(prev => [{
+      id: nextId,
+      symbol: trade.symbol,
+      label: trade.label || trade.symbol,
+      type: trade.type,
+      assetClass: trade.assetClass || "market",
+      qty: trade.qty,
+      costBasis: trade.costBasis,
+      exitPrice: trade.exitPrice,
+      openDate: trade.openDate,
+      closeDate: trade.closeDate,
+      realizedPnl,
+      pnlPct: trade.costBasis > 0 ? (trade.exitPrice - trade.costBasis) / trade.costBasis : 0,
+      notes: trade.notes,
+    }, ...prev]);
+    setNextId(p => p + 1);
+    setShowHistoricalModal(false);
+  }, [nextId]);
 
   const startCloseTrade = useCallback((holding) => {
     setClosingHolding(holding);
@@ -1222,7 +1339,11 @@ export default function Portfolio({ onNavigateToChart }) {
 
       {/* Closed Trades */}
       <div style={{ marginBottom: 24 }}>
-        <div style={S.sectionTitle}><span>Closed Trades</span><div style={S.divider} /></div>
+        <div style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 12 }}>
+          <span>Closed Trades</span>
+          <button style={{ ...S.btn, fontSize: 10, padding: "3px 10px" }} onClick={() => setShowHistoricalModal(true)}>+ Historical Trade</button>
+          <div style={S.divider} />
+        </div>
         <div style={S.card}>
           <table style={S.table}>
             <thead><tr>{["Asset", "Type", "Qty", "Entry", "Exit", "Open", "Close", "Realized P&L", "Return", "Notes", ""].map((c, i) => <th key={c} style={[2,3,4,7,8].includes(i) ? S.thRight : S.th}>{c}</th>)}</tr></thead>
@@ -1284,6 +1405,7 @@ export default function Portfolio({ onNavigateToChart }) {
           </div>
         </div>
       )}
+      {showHistoricalModal && <HistoricalTradeModal onAdd={addHistoricalTrade} onCancel={() => setShowHistoricalModal(false)} />}
     </div>
   );
 }
